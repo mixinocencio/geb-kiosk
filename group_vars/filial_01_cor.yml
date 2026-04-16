@@ -1,0 +1,5 @@
+---
+# Grupo de uso: Corporativo (FILIAL 01)
+kiosk_unidade_slug: "filial01"
+kiosk_tipo_slug: "cor"
+kiosk_start_url: "https://SUBSTITUA_PORTAL_CORPORATIVO_FILIAL01"

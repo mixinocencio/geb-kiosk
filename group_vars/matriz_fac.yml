@@ -1,0 +1,5 @@
+---
+# Grupo de uso: Fábrica (MATRIZ)
+kiosk_unidade_slug: "matriz"
+kiosk_tipo_slug: "fac"
+kiosk_start_url: "https://SUBSTITUA_SHAREPOINT_PRODUCAO_MATRIZ"

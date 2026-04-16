@@ -1,0 +1,37 @@
+#!/bin/bash
+# Lançador Chromium — modo quiosque. Mantido em root:root 0755.
+
+set -eu
+
+URL={{ kiosk_start_url | quote }}
+
+CHROME="{{ kiosk_chromium_binary | default('/usr/bin/chromium-browser') }}"
+if [ ! -x "${CHROME}" ] && [ -x /usr/bin/chromium ]; then
+  CHROME=/usr/bin/chromium
+fi
+
+if [ ! -x "${CHROME}" ]; then
+  echo "Binário do Chromium não encontrado. Ajuste kiosk_chromium_binary no inventário." >&2
+  exit 1
+fi
+
+# Política de sandbox: mantemos o sandbox do Chromium ATIVO (padrão seguro).
+# Só acrescente flags como --no-sandbox via kiosk_chromium_extra_flags se a TI
+# documentar requisito explícito do hardware/driver.
+
+exec "${CHROME}" \
+  --kiosk \
+  --incognito \
+  --new-window \
+  --no-first-run \
+  --disable-infobars \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-features=TranslateUI \
+  --disable-save-password-bubble \
+  --password-store=basic \
+  --disk-cache-dir=/dev/null \
+  --media-cache-size=1{% if kiosk_chromium_extra_flags | default('') | trim | length > 0 %} \
+  {{ kiosk_chromium_extra_flags | trim }}{% endif %} \
+  "${URL}"
+
