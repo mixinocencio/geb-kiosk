@@ -1,0 +1,115 @@
+---
+# =============================================================================
+# Playbook: configuração de quiosque (LightDM + Cinnamon + Google Chrome)
+# =============================================================================
+# Arquitetura:
+# - Variável de grupo url_kiosk: definida por contexto no hosts.ini ([grupo:vars]).
+# - Conexão e elevação: ansible_user / ansible_ssh_pass / ansible_become_pass no inventário.
+# - Nenhuma URL ou usuário sensível é definido em vars: no topo deste arquivo.
+# - Pacote Chrome: instalação a partir de .deb em files/ (veja README em files/).
+# =============================================================================
+
+- name: Configurar quiosque Linux (Chrome kiosk + LightDM + Cinnamon)
+  hosts: quiosques
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Garantir que url_kiosk foi definida no grupo do host
+      ansible.builtin.assert:
+        that:
+          - url_kiosk is defined
+          - url_kiosk | length > 0
+        fail_msg: >-
+          Defina url_kiosk em [quiosques_fabrica:vars], [quiosques_rh:vars] ou grupo equivalente no hosts.ini.
+
+  tasks:
+    - name: Atualizar índice de pacotes (apt update)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Verificar se o .deb do Google Chrome existe no control node
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/files/google-chrome-stable_current_amd64.deb"
+      register: chrome_deb_stat
+      delegate_to: localhost
+      run_once: true
+
+    - name: Falhar com instrução se o pacote .deb do Chrome não estiver em files/
+      ansible.builtin.fail:
+        msg: >-
+          Coloque o arquivo google-chrome-stable_current_amd64.deb em {{ playbook_dir }}/files/
+          antes de executar este playbook (instalação apenas via pacote .deb).
+      when: not chrome_deb_stat.stat.exists
+
+    - name: Copiar pacote Google Chrome (.deb) para o alvo
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/google-chrome-stable_current_amd64.deb"
+        dest: /tmp/google-chrome-stable.deb
+        mode: "0644"
+      become: true
+
+    - name: Instalar Google Chrome a partir do pacote .deb
+      ansible.builtin.apt:
+        deb: /tmp/google-chrome-stable.deb
+        state: present
+      become: true
+
+    - name: Corrigir dependências após instalação do .deb (se necessário)
+      ansible.builtin.apt:
+        fix_broken: true
+      become: true
+
+    - name: Garantir LightDM e sessão Cinnamon
+      ansible.builtin.apt:
+        name:
+          - lightdm
+          - cinnamon
+        state: present
+      become: true
+
+    - name: Garantir diretório de snippets do LightDM
+      ansible.builtin.file:
+        path: /etc/lightdm/lightdm.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    - name: Configurar autologin LightDM com sessão Cinnamon
+      ansible.builtin.copy:
+        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-cinnamon.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Seat:*]
+          autologin-user={{ ansible_user }}
+          autologin-session=cinnamon
+          user-session=cinnamon
+      become: true
+      notify: Reiniciar LightDM
+
+    - name: Instalar atalho kiosk.desktop (autostart global)
+      ansible.builtin.copy:
+        dest: /etc/xdg/autostart/kiosk.desktop
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Name=Quiosque EBEG
+          Comment=Inicia o Chrome em modo quiosque; URL vem do grupo (url_kiosk) no hosts.ini.
+          Exec=google-chrome --no-first-run --kiosk --incognito {{ url_kiosk }}
+          X-GNOME-Autostart-enabled=true
+      become: true
+
+  handlers:
+    - name: Reiniciar LightDM
+      ansible.builtin.service:
+        name: lightdm
+        state: restarted
+      become: true
