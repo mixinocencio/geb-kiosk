@@ -1,0 +1,21 @@
+---
+# Playbook para gestão de patches de segurança sem dist-upgrade.
+- name: Patch Management de Segurança (Safe Upgrade)
+  hosts: all
+  become: yes
+  tasks:
+    # Atualiza o cache de repositórios para obter a lista mais recente de pacotes.
+    - name: Atualizar cache de repositórios
+      ansible.builtin.apt:
+        update_cache: yes
+
+    # Aplica upgrade seguro mantendo as configurações locais em caso de conflito.
+    - name: Aplicar atualizações seguras
+      ansible.builtin.apt:
+        upgrade: yes
+        dpkg_options: 'force-confold,force-confdef'
+
+    # Remove artefatos de pacotes obsoletos do cache local.
+    - name: Limpar pacotes obsoletos do cache
+      ansible.builtin.apt:
+        autoclean: yes
