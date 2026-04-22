@@ -102,8 +102,8 @@
           [Desktop Entry]
           Type=Application
           Name=Quiosque EBEG
-          Comment=Inicia o Chrome em modo quiosque; URL vem do grupo (url_kiosk) no hosts.ini.
-          Exec=google-chrome --no-first-run --kiosk --incognito {{ url_kiosk }}
+          Comment=Inicia Chrome/Chromium em modo quiosque; URL vem do grupo (url_kiosk) no hosts.ini.
+          Exec=sh -c 'if command -v google-chrome >/dev/null 2>&1; then google-chrome --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; elif command -v chromium-browser >/dev/null 2>&1; then chromium-browser --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; else chromium --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; fi'
           X-GNOME-Autostart-enabled=true
       become: true
 
