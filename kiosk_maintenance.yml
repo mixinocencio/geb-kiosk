@@ -1,0 +1,57 @@
+---
+# Playbook de manutenção preventiva para quiosques Linux.
+- name: Manutenção e limpeza de cache de navegadores
+  hosts: all
+  become: yes
+  tasks:
+    # Remove diretórios de cache do Google Chrome para forçar recriação limpa.
+    - name: Limpeza de cache do Google Chrome
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /home/administrador/.cache/google-chrome
+        - /home/administrador/.config/google-chrome/Default/Cache
+
+    # Remove diretórios de cache do Chromium para eliminar dados temporários antigos.
+    - name: Limpeza de cache do Chromium
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /home/administrador/.cache/chromium
+        - /home/administrador/.config/chromium/Default/Cache
+
+    # Baixa o pacote oficial mais recente do Google Chrome para instalação local.
+    - name: Baixar instalador oficial do Google Chrome
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        dest: /tmp/google-chrome-stable_current_amd64.deb
+        mode: '0644'
+
+    # Instala/atualiza o Google Chrome a partir do pacote .deb baixado.
+    - name: Atualizar Google Chrome
+      ansible.builtin.apt:
+        deb: /tmp/google-chrome-stable_current_amd64.deb
+        state: present
+
+    # Tenta atualizar o pacote chromium no Mint/Ubuntu quando disponível.
+    - name: Atualizar Chromium (pacote chromium)
+      ansible.builtin.apt:
+        name: chromium
+        state: latest
+      register: chromium_update_result
+      ignore_errors: yes
+
+    # Se o pacote chromium não existir, usa o nome alternativo chromium-browser.
+    - name: Atualizar Chromium (pacote chromium-browser)
+      ansible.builtin.apt:
+        name: chromium-browser
+        state: latest
+      when: chromium_update_result is failed
+
+    # Reinicia o display manager para fechar navegadores e recarregar o modo kiosk.
+    - name: Recarregar quiosque reiniciando o serviço lightdm
+      ansible.builtin.systemd:
+        name: lightdm
+        state: restarted
