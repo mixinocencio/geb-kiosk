@@ -1,5 +1,5 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Versão Definitiva)"
+- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Versão Corrigida)"
   hosts: quiosques_gptw
   become: yes
 
@@ -17,7 +17,7 @@
         state: present
         update_cache: yes
 
-    - name: "2. Download e Instalação do Google Chrome (Redundância)"
+    - name: "2. Download e Instalação do Google Chrome"
       block:
         - name: "Baixar pacote .deb do Chrome"
           ansible.builtin.get_url:
@@ -41,7 +41,7 @@
         state: directory
         mode: '0755'
 
-    - name: "4. Política Enterprise: ZERO TRUST Absoluto (Anti-Popups, Fuga e Tradução)"
+    - name: "4. Política Enterprise: Lista Branca Expandida (grupoebeg.com.br e emprising.com)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -56,11 +56,14 @@
             "TranslateEnabled": false,
             "URLBlocklist": ["*"],
             "URLAllowlist": [
-              "{{ url_kiosk }}*",
-              "*ebegembalagens.com.br*",
-              "*emprising.com*",
-              "*greatplacetowork.com*",
-              "*gptw.com*"
+              "http://*",
+              "https://*",
+              "file://*",
+              "[*.]grupoebeg.com.br",
+              "[*.]emprising.com",
+              "[*.]greatplacetowork.com",
+              "[*.]gptw.com",
+              "{{ url_kiosk }}*"
             ],
             "FullscreenAllowed": true
           }
@@ -89,7 +92,7 @@
         group: administrador
         mode: '0755'
 
-    - name: "8. Openbox: Regras de Janela Inteligentes e Controle de Interface"
+    - name: "8. Openbox: Regras de Janela (Identificação por app-*)"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -102,7 +105,6 @@
                 <decor>no</decor>
                 <fullscreen>yes</fullscreen>
               </application>
-
               <application name="google-chrome">
                 <decor>yes</decor>
                 <position force="yes"><x>center</x><y>center</y></position>
@@ -116,18 +118,16 @@
             </keyboard>
           </openbox_config>
 
-    - name: "9. Mordaça de Teclado (Bloqueio Físico via xbindkeys)"
+    - name: "9. Mordaça de Teclado (xbindkeys)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
-          # Impede de focar na barra de endereço
           "true"
             Control + l
           "true"
             Alt + d
-          # Impede de abrir novas abas ou janelas
           "true"
             Control + t
           "true"
@@ -136,16 +136,14 @@
             F11
           "true"
             F12
-          # Desligamento por hardware
           "sudo /sbin/poweroff"
             End
-          # Admin Backdoors (Redundância do Openbox)
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
           "pkill -9 chrome && pkill -9 openbox"
             Control + Alt + Home
 
-    - name: "10. Script Mestre (kiosk.sh) com Loop Definitivo"
+    - name: "10. Script Mestre (kiosk.sh) - Modo App"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
@@ -173,7 +171,7 @@
               sleep 2
           done
 
-    - name: "11. Criar a definição da Sessão Kiosk"
+    - name: "11. Criar sessão Kiosk Desktop"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: |
@@ -182,7 +180,7 @@
           Exec=/home/administrador/kiosk.sh
           Type=Application
 
-    - name: "12. Ajustar Terminais (Liberar VTSwitch)"
+    - name: "12. Liberar Troca de Terminais"
       ansible.builtin.copy:
         dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
         content: |
@@ -191,7 +189,7 @@
               Option "DontZap" "true"
           EndSection
 
-    - name: "13. Garantir Permissões"
+    - name: "13. Ajustar Permissões Finais"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
 
     - name: "14. Reboot Tático"
