@@ -1,10 +1,10 @@
 ---
-- name: Setup Kiosk Blindado - Versão Final com Loop e Blindagem Total
+- name: "Setup Kiosk Blindado - Versão Final com Loop e Blindagem Total"
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: 1. Instalar infraestrutura de Kiosk (Openbox e Dependências)
+    - name: "1. Instalar infraestrutura de Kiosk (Openbox e Dependências)"
       ansible.builtin.apt:
         name:
           - openbox
@@ -15,13 +15,13 @@
         state: present
         update_cache: yes
 
-    - name: 2. Blindagem de Senha: Desativar GNOME Keyring Daemon
+    - name: "2. Blindagem de Senha: Desativar GNOME Keyring Daemon"
       ansible.builtin.shell: |
         chmod -x /usr/bin/gnome-keyring-daemon || true
         rm -rf /home/administrador/.local/share/keyrings/*
       ignore_errors: yes
 
-    - name: 3. Criar Script de Execução com Loop e Auto-Limpeza (kiosk.sh)
+    - name: "3. Criar Script de Execução com Loop e Auto-Limpeza (kiosk.sh)"
       ansible.builtin.copy:
         dest: /usr/local/bin/kiosk.sh
         mode: '0755'
@@ -33,7 +33,7 @@
           xset -dpms
 
           while true; do
-            # LIMPEZA TOTAL: Garante que cada sessão comece do zero (Amnésia de dados)
+            # LIMPEZA TOTAL: Garante que cada sessão comece do zero
             rm -rf /home/administrador/.config/google-chrome
             rm -rf /home/administrador/.cache/google-chrome
 
@@ -50,18 +50,18 @@
                 --check-for-update-interval=31536000 \
                 "{{ url_kiosk }}"
 
-            # Se o navegador fechar (Alt+F4 ou Crash), ele aguarda 1s e reinicia
+            # Se o navegador fechar, reinicia em 1s
             sleep 1
           done
 
-    - name: 4. Configurar Openbox para BLOQUEAR Atalhos de Teclado
+    - name: "4. Configurar Openbox para BLOQUEAR Atalhos de Teclado"
       ansible.builtin.file:
         path: /home/administrador/.config/openbox
         state: directory
         owner: administrador
         mode: '0755'
 
-    - name: 5. Criar Regras do Openbox (Mata Alt+F4, Alt+Tab, Alt+F2 e Botão Direito)
+    - name: "5. Criar Regras do Openbox (Mata Alt+F4, Alt+Tab e Outros)"
       ansible.builtin.copy:
         dest: /home/administrador/.config/openbox/rc.xml
         owner: administrador
@@ -81,12 +81,11 @@
             <mouse>
               <context name="Root">
                 <mousebind action="Press" button="Right"><action name="Execute"><command>true</command></action></mousebind>
-                <mousebind action="Press" button="Middle"><action name="Execute"><command>true</command></action></mousebind>
               </context>
             </mouse>
           </openbox_config>
 
-    - name: 6. Blindar Terminais (Impede Ctrl+Alt+F1...F12)
+    - name: "6. Blindar Terminais (Impede Ctrl+Alt+F1...F12)"
       ansible.builtin.copy:
         dest: /etc/X11/xorg.conf.d/99-disable-keys.conf
         content: |
@@ -95,23 +94,23 @@
               Option "DontZap" "true"
           EndSection
 
-    - name: 7. Definir Chrome como Navegador Padrão
+    - name: "7. Definir Chrome como Navegador Padrão"
       ansible.builtin.shell: |
         xdg-settings set default-web-browser google-chrome.desktop
       become_user: administrador
 
-    - name: 8. Configurar Sessão e Autologin (LightDM)
+    - name: "8. Configurar Sessão e Autologin (LightDM)"
       ansible.builtin.copy:
         dest: "{{ item.dest }}"
         content: "{{ item.content }}"
       loop:
-        - dest: /usr/share/xsessions/kiosk.desktop
+        - dest: "/usr/share/xsessions/kiosk.desktop"
           content: |
             [Desktop Entry]
             Name=Kiosk
             Exec=openbox --startup /usr/local/bin/kiosk.sh
             Type=Application
-        - dest: /etc/lightdm/lightdm.conf
+        - dest: "/etc/lightdm/lightdm.conf"
           content: |
             [Seat:*]
             autologin-guest=false
@@ -119,5 +118,5 @@
             autologin-user-timeout=0
             user-session=kiosk
 
-    - name: 9. Reiniciar para Aplicar a Blindagem Final
+    - name: "9. Reiniciar para Aplicar a Blindagem Final"
       ansible.builtin.reboot:
