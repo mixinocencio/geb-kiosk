@@ -1,25 +1,30 @@
 ---
-- name: "Setup Kiosk Blindado - Fusão com Script Original"
+- name: "Setup Kiosk Blindado - Versão Final com Atalhos Customizados"
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: "1. Instalar pacotes essenciais (Incluindo xbindkeys)"
+    - name: "1. Instalar infraestrutura de Kiosk e pacotes de controle"
       ansible.builtin.apt:
         name:
           - openbox
           - lightdm
           - xbindkeys
           - xdotool
+          - dbus-x11
+          - lxterminal
         state: present
         update_cache: yes
 
-    - name: "2. Preparar diretório de sobrescrita do LightDM"
-      ansible.builtin.file:
-        path: /etc/lightdm/lightdm.conf.d
-        state: directory
+    - name: "2. Configurar permissão de Sudo sem senha (Poweroff e Terminal)"
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/kiosk-admin
+        content: |
+          administrador ALL=(ALL) NOPASSWD: /sbin/poweroff
+          administrador ALL=(ALL) NOPASSWD: /bin/chvt
+        mode: '0440'
 
-    - name: "3. Forçar sessão Kiosk (Método Oficial Linux Mint)"
+    - name: "3. Forçar sessão Kiosk no LightDM"
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
         content: |
@@ -28,26 +33,32 @@
           autologin-session=kiosk
           user-session=kiosk
 
-    - name: "4. Configurar xbindkeys para matar Alt+F4 e Ctrl+W"
+    - name: "4. Configurar xbindkeys (Ninja Mode + Poweroff + Backdoor + Emergency)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
-          # Ignora Alt+F4
-          "true"
+          # MANOBRA NINJA: Alt+F4 mata o processo e o loop reinicia limpo
+          "pkill -9 chrome"
             alt + f4
-          # Ignora Ctrl+W (Fechar aba)
+
+          # DESLIGAMENTO TOTAL: Tecla End desliga o hardware
+          "sudo /sbin/poweroff"
+            End
+
+          # ADMIN BACKDOOR: Ctrl+Alt+Insert cai no terminal TTY4
+          "sudo /bin/chvt 4"
+            control+alt + Insert
+
+          # ATALHO DE EMERGÊNCIA: Reinicia navegador e limpa cache
+          "pkill -9 chrome && pkill -9 openbox"
+            control+alt + home
+
           "true"
             control + w
-          # Ignora Ctrl+T (Nova aba)
-          "true"
-            control + t
-          # Ignora Ctrl+N (Nova janela)
-          "true"
-            control + n
 
-    - name: "5. Criar Script Mestre (Padrão Original Validado)"
+    - name: "5. Criar Script Mestre (kiosk.sh) com Auto-Limpeza"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
@@ -55,52 +66,48 @@
         mode: '0755'
         content: |
           #!/bin/bash
-          # 1. Inicia o Openbox silenciosamente
           openbox &
-
-          # 2. Inicia o bloqueador de teclas do usuário
           xbindkeys &
-
-          # 3. Desativa proteções de tela
           xset s off
           xset s noblank
           xset -dpms
 
-          # 4. Loop Infinito (Anti-fechamento)
           while true; do
-              # Limpa flags de erro do Chrome para evitar a barra "O Chrome não foi fechado corretamente"
-              sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' /home/administrador/.config/google-chrome/Default/Preferences 2>/dev/null || true
-              sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' /home/administrador/.config/google-chrome/Default/Preferences 2>/dev/null || true
-
-              # Disparo do Navegador
+              # Limpeza de dados para garantir amnésia de sessão
+              rm -rf /home/administrador/.config/google-chrome
+              rm -rf /home/administrador/.cache/google-chrome
+              
               google-chrome \
                   --kiosk \
                   --incognito \
                   --no-first-run \
-                  --disable-translate \
                   --disable-infobars \
-                  --disable-suggestions-service \
-                  --disable-save-password-bubble \
                   --disable-session-crashed-bubble \
                   --password-store=basic \
                   "{{ url_kiosk }}"
-
-              # Se fechar, aguarda 2s e reabre
               sleep 2
           done
 
-    - name: "6. Criar a Sessão Customizada (kiosk.desktop)"
+    - name: "6. Criar a definição da Sessão (kiosk.desktop)"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: |
           [Desktop Entry]
           Name=Kiosk Mode
-          Comment=Sessão Kiosk com Google Chrome e bloqueio de abas
           Exec=/home/administrador/kiosk.sh
           Type=Application
 
-    - name: "7. Ajustar propriedade de todos os arquivos do administrador"
+    - name: "7. Ajustar Terminais (Liberar VTSwitch para Suporte Técnico)"
+      ansible.builtin.copy:
+        dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
+        content: |
+          Section "ServerFlags"
+              Option "DontVTSwitch" "false"
+              Option "DontZap" "true"
+          EndSection
+
+    - name: "8. Garantir permissões na Home do Administrador"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
 
-    - name: "8. Reboot Tático"
+    - name: "9. Reboot Tático"
       ansible.builtin.reboot:
