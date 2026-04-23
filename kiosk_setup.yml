@@ -1,5 +1,5 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Idempotente)"
+- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Atalho Home Simplificado)"
   hosts: quiosques_gptw
   become: yes
 
@@ -11,12 +11,12 @@
         update_cache: yes
 
     - name: "2. Verificar se o Google Chrome já está instalado"
-      ansible.builtin.command: dpkg-s google-chrome-stable
+      ansible.builtin.command: dpkg -s google-chrome-stable
       register: chrome_check
       ignore_errors: yes
       changed_when: false
 
-    - name: "3. Instalação do Google Chrome (Apenas se necessário)"
+    - name: "3. Instalação do Google Chrome (Idempotente)"
       block:
         - name: "Baixar pacote .deb do Chrome"
           ansible.builtin.get_url:
@@ -35,7 +35,7 @@
             state: absent
       when: chrome_check.rc != 0
 
-    - name: "4. Política Enterprise: ZERO TRUST (Lista Branca e Anti-Fuga)"
+    - name: "4. Política Enterprise: ZERO TRUST (Lista Branca e Sem Tradução)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -66,7 +66,20 @@
           administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl
         mode: '0440'
 
-    - name: "6. Configurar Openbox (Regras de Janela Estritas)"
+    - name: "6. Forçar autologin e sessão Kiosk"
+      ansible.builtin.copy:
+        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
+        content: "[Seat:*]\nautologin-user=administrador\nautologin-session=kiosk"
+
+    - name: "7. Preparar Diretório do Openbox"
+      ansible.builtin.file:
+        path: "/home/administrador/.config/openbox"
+        state: directory
+        owner: administrador
+        group: administrador
+        mode: '0755'
+
+    - name: "8. Openbox: Regras de Janela e Atalho Home"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -86,18 +99,22 @@
               </application>
             </applications>
             <keyboard>
+              <keybind key="Home"><action name="Execute"><command>pkill -9 chrome && pkill -9 openbox</command></action></keybind>
               <keybind key="A-F4"><action name="Close"/></keybind>
               <keybind key="C-A-Insert"><action name="Execute"><command>sudo /usr/bin/chvt 4</command></action></keybind>
-              <keybind key="C-A-Home"><action name="Execute"><command>pkill -9 chrome && pkill -9 openbox</command></action></keybind>
             </keyboard>
           </openbox_config>
 
-    - name: "7. Bloqueio de Teclado (xbindkeys)"
+    - name: "9. Mordaça de Teclado (xbindkeys - Home Único)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
+          # Atalho Home Único
+          "pkill -9 chrome && pkill -9 openbox"
+            Home
+          # Bloqueio de Fuga
           "true"
             Control + l
           "true"
@@ -114,10 +131,8 @@
             End
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
-          "pkill -9 chrome && pkill -9 openbox"
-            Control + Alt + Home
 
-    - name: "8. Script de Inicialização (kiosk.sh)"
+    - name: "10. Script de Inicialização (kiosk.sh)"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
@@ -133,12 +148,25 @@
               sleep 2
           done
 
-    - name: "9. Autologin e Sessão"
+    - name: "11. Sessão Kiosk Desktop"
       ansible.builtin.copy:
-        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
-        content: "[Seat:*]\nautologin-user=administrador\nautologin-session=kiosk"
+        dest: /usr/share/xsessions/kiosk.desktop
+        content: |
+          [Desktop Entry]
+          Name=Kiosk Mode
+          Exec=/home/administrador/kiosk.sh
+          Type=Application
 
-    - name: "10. Permissões e Reinício"
+    - name: "12. Liberar Troca de Terminais"
+      ansible.builtin.copy:
+        dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
+        content: |
+          Section "ServerFlags"
+              Option "DontVTSwitch" "false"
+              Option "DontZap" "true"
+          EndSection
+
+    - name: "13. Ajustar Permissões e Reiniciar"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
       notify: Reboot Tático
 
