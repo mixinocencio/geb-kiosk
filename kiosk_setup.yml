@@ -1,54 +1,77 @@
 ---
-- name: Setup de Kiosk Blindado (Nível Industrial)
+- name: Setup Kiosk Blindado - Versão Incógnito e Autolimpante
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: 1. Instalar infraestrutura mínima (Openbox e ferramentas)
+    - name: 1. Instalar infraestrutura e utilitários de sistema
       ansible.builtin.apt:
         name:
           - openbox
           - xdotool
           - python3-dbus
+          - dbus-x11
+          - xdg-utils
         state: present
         update_cache: yes
 
-    - name: 2. Criar script de loop de execução (Anti-fechamento)
+    - name: 2. Definir Chrome como navegador padrão do sistema
+      ansible.builtin.shell: |
+        xdg-settings set default-web-browser google-chrome.desktop
+      become_user: administrador
+
+    - name: 3. Desabilitar o serviço de Keyring (Evita pop-ups de senha)
+      ansible.builtin.shell: |
+        chmod -x /usr/bin/gnome-keyring-daemon || true
+        rm -rf /home/administrador/.local/share/keyrings/*
+      ignore_errors: yes
+
+    - name: 4. Criar script de execução com Limpeza Total e Modo Incógnito
       ansible.builtin.copy:
         dest: /usr/local/bin/kiosk.sh
         mode: '0755'
         content: |
           #!/bin/bash
-          # Desabilita proteção de tela e gerenciamento de energia
+          # Desabilita proteções de tela
           xset s off
           xset s noblank
           xset -dpms
 
-          # Loop infinito: se o navegador fechar, ele reabre instantaneamente
           while true; do
-            google-chrome --kiosk --no-first-run --noerrdialogs --disable-infobars --disable-session-crashed-bubble --check-for-update-interval=31536000 "{{ url_kiosk }}"
-            sleep 2
+            # LIMPEZA MILITAR: Apaga o perfil e cache antes de abrir o Chrome
+            rm -rf /home/administrador/.config/google-chrome
+            rm -rf /home/administrador/.cache/google-chrome
+
+            # DISPARO DO CHROME:
+            # --incognito: Não salva cookies, histórico ou dados.
+            # --no-default-browser-check: Mata o aviso de "definir como padrão".
+            # --no-first-run: Pula a tela de "Bem-vindo".
+            # --password-store=basic: Ignora o chaveiro do Linux.
+            google-chrome --kiosk \
+                          --incognito \
+                          --no-first-run \
+                          --no-default-browser-check \
+                          --noerrdialogs \
+                          --disable-infobars \
+                          --password-store=basic \
+                          --disable-session-crashed-bubble \
+                          --check-for-update-interval=31536000 "{{ url_kiosk }}"
+            
+            # Se o navegador fechar, espera 1 segundo e limpa tudo de novo antes de reabrir
+            sleep 1
           done
 
-    - name: 3. Criar definição de sessão customizada para o LightDM
+    - name: 5. Criar definição de sessão customizada (LightDM)
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: |
           [Desktop Entry]
           Name=Kiosk
-          Comment=Sessão de Navegador Exclusiva
+          Comment=Sessao de Navegador Exclusiva
           Exec=openbox --startup /usr/local/bin/kiosk.sh
           Type=Application
 
-    - name: 4. Resetar Chaveiro de Senhas (Remove pedido de senha do Chrome)
-      ansible.builtin.shell: |
-        rm -rf /home/administrador/.local/share/keyrings/*
-        # Cria um chaveiro padrão sem senha
-        python3 -c "import dbus; bus = dbus.SessionBus(); remote_object = bus.get_object('org.freedesktop.secrets', '/org/freedesktop/secrets'); interface = dbus.Interface(remote_object, 'org.freedesktop.Secret.Service'); interface.CreateCollection({'org.freedesktop.Secret.Collection.Label': 'Default'}, '')" || true
-      become_user: administrador
-      ignore_errors: yes
-
-    - name: 5. Configurar Autologin para a nova sessão de Kiosk
+    - name: 6. Configurar Autologin para a nova sessão de Kiosk
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf
         content: |
@@ -59,29 +82,14 @@
           user-session=kiosk
         mode: '0644'
 
-    - name: 6. Blindar Teclado (Desabilitar TTYs e Atalhos de Sistema)
-      ansible.builtin.copy:
-        dest: /etc/X11/xorg.conf.d/99-disable-keys.conf
-        content: |
-          Section "ServerFlags"
-              Option "DontVTSwitch" "true"
-              Option "DontZap" "true"
-          EndSection
-
-          Section "InputClass"
-              Identifier "Keyboard Catchall"
-              MatchIsKeyboard "on"
-              Option "XkbOptions" "terminate:ctrl_alt_bksp, grab:break_actions"
-          EndSection
-
-    - name: 7. Desabilitar Menu de Contexto do Openbox (Botão Direito)
+    - name: 7. Configurar Openbox (Bloqueio total de atalhos e botões)
       ansible.builtin.file:
         path: /home/administrador/.config/openbox
         state: directory
         owner: administrador
         mode: '0755'
 
-    - name: 8. Configurar Openbox para ignorar atalhos (Alt+F4, Alt+Tab, etc)
+    - name: 8. Bloqueio de Teclado e Mouse (RC.XML)
       ansible.builtin.copy:
         dest: /home/administrador/.config/openbox/rc.xml
         owner: administrador
@@ -89,10 +97,11 @@
           <?xml version="1.0" encoding="UTF-8"?>
           <openbox_config xmlns="http://openbox.org/3.4/rc">
             <keyboard>
-              <chainQuitKey>C-g</chainQuitKey>
               <keybind key="A-F4"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="A-Tab"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="A-F2"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="C-A-Delete"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="W-d"><action name="Execute"><command>true</command></action></keybind>
             </keyboard>
             <mouse>
               <context name="Root">
@@ -101,5 +110,14 @@
             </mouse>
           </openbox_config>
 
-    - name: 9. Reiniciar Sistema para aplicar blindagem
+    - name: 9. Blindar terminais TTY (Impede Ctrl+Alt+F1...F7)
+      ansible.builtin.copy:
+        dest: /etc/X11/xorg.conf.d/99-disable-keys.conf
+        content: |
+          Section "ServerFlags"
+              Option "DontVTSwitch" "true"
+              Option "DontZap" "true"
+          EndSection
+
+    - name: 10. Reiniciar Sistema para aplicar a blindagem
       ansible.builtin.reboot:
