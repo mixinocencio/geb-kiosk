@@ -1,39 +1,54 @@
 ---
-- name: Setup Militar de Quiosques (Fábrica, RH e GPTW)
+- name: Setup Definitivo de Quiosques (Correção de Cache e Sessão)
   hosts: quiosques
   become: yes
 
   tasks:
+    - name: 0. Limpar resíduos de cache e sessões legadas
+      ansible.builtin.shell: |
+        rm -rf /var/lib/apt/lists/*
+        apt-get clean
+        rm -rf /etc/lightdm/lightdm.conf.d/*
+      args:
+        warn: false
+
     - name: 1. Atualizar repositórios APT
       ansible.builtin.apt:
         update_cache: yes
+      retries: 5
+      delay: 10
+      register: apt_update_result
+      until: apt_update_result is success
 
-    - name: 2. Instalar dependências básicas
+    - name: 2. Instalar dependências de sistema
       ansible.builtin.apt:
         name:
           - wget
           - gnupg2
           - ca-certificates
+          - lightdm
         state: present
 
-    - name: 3. Baixar instalador do Google Chrome
-      ansible.builtin.get_url:
-        url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        dest: /tmp/google-chrome-stable_current_amd64.deb
-        mode: '0644'
+    - name: 3. Download e Instalação do Google Chrome
+      block:
+        - name: Baixar .deb do Chrome
+          ansible.builtin.get_url:
+            url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            dest: /tmp/google-chrome-stable_current_amd64.deb
+            mode: '0644'
 
-    - name: 4. Instalar Google Chrome via .deb
-      ansible.builtin.apt:
-        deb: /tmp/google-chrome-stable_current_amd64.deb
-        state: present
-      ignore_errors: yes
+        - name: Instalar pacote .deb
+          ansible.builtin.apt:
+            deb: /tmp/google-chrome-stable_current_amd64.deb
+            state: present
+          ignore_errors: yes
 
-    - name: 5. Corrigir dependências quebradas (Fix Broken)
-      ansible.builtin.command: apt-get install -f -y
-      register: fix_result
-      changed_when: "'0 atualizados, 0 novos instalados' not in fix_result.stdout and '0 upgraded, 0 newly installed' not in fix_result.stdout"
+        - name: Corrigir dependências do Chrome (Fix Broken)
+          ansible.builtin.command: apt-get install -f -y
+          register: fix_result
+          changed_when: "'0 upgraded, 0 newly installed' not in fix_result.stdout"
 
-    - name: 6. Configurar Autologin no LightDM
+    - name: 4. Configurar Autologin (Usuário Administrador)
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf
         content: |
@@ -44,7 +59,7 @@
           user-session=cinnamon
         mode: '0644'
 
-    - name: 7. Garantir diretório de autostart para o usuário administrador
+    - name: 5. Preparar ambiente de Autostart
       ansible.builtin.file:
         path: /home/administrador/.config/autostart
         state: directory
@@ -52,13 +67,13 @@
         group: administrador
         mode: '0755'
 
-    - name: 8. Criar atalho do Kiosk (Chrome em tela cheia)
+    - name: 6. Criar atalho do Kiosk (Chrome Fullscreen)
       ansible.builtin.copy:
         dest: /home/administrador/.config/autostart/kiosk.desktop
         content: |
           [Desktop Entry]
           Type=Application
-          Exec=google-chrome --no-first-run --kiosk {{ url_kiosk }}
+          Exec=google-chrome --no-first-run --kiosk --noerrdialogs --disable-infobars {{ url_kiosk }}
           Hidden=false
           NoDisplay=false
           X-GNOME-Autostart-enabled=true
@@ -67,7 +82,15 @@
         group: administrador
         mode: '0644'
 
-    - name: 9. Reiniciar LightDM para aplicar (A tela vai piscar)
+    - name: 7. Limpar sessões Xsession personalizadas (Evita erro qrk.kiosk)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /home/administrador/.xsession
+        - /home/administrador/.Xsession
+
+    - name: 8. Reiniciar interface gráfica (A tela vai piscar agora)
       ansible.builtin.service:
         name: lightdm
         state: restarted
