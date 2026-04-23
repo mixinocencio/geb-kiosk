@@ -1,5 +1,5 @@
 ---
-- name: Setup Definitivo de Quiosques (Correção de Cache e Sessão)
+- name: Setup Definitivo de Quiosques (Correção Final de Sintaxe)
   hosts: quiosques
   become: yes
 
@@ -9,8 +9,6 @@
         rm -rf /var/lib/apt/lists/*
         apt-get clean
         rm -rf /etc/lightdm/lightdm.conf.d/*
-      args:
-        warn: false
 
     - name: 1. Atualizar repositórios APT
       ansible.builtin.apt:
@@ -82,7 +80,7 @@
         group: administrador
         mode: '0644'
 
-    - name: 7. Limpar sessões Xsession personalizadas (Evita erro qrk.kiosk)
+    - name: 7. Limpar sessões Xsession personalizadas
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -90,7 +88,7 @@
         - /home/administrador/.xsession
         - /home/administrador/.Xsession
 
-    - name: 8. Reiniciar interface gráfica (A tela vai piscar agora)
+    - name: 8. Reiniciar interface gráfica
       ansible.builtin.service:
         name: lightdm
         state: restarted
