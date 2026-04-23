@@ -1,5 +1,5 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação GPTW EBEG"
+- name: "Setup Kiosk Blindagem Total - Operação Zero Trust EBEG"
   hosts: quiosques_gptw
   become: yes
 
@@ -16,7 +16,7 @@
         state: directory
         mode: '0755'
 
-    - name: "3. Implementar Política de Segurança Enterprise (Anti-Fuga)"
+    - name: "3. Política Enterprise: ZERO TRUST (Lista Branca Rigorosa)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -28,11 +28,18 @@
             "BookmarkBarEnabled": false,
             "EditBookmarksEnabled": false,
             "AllowFileSelectionDialogs": false,
-            "URLBlocklist": ["chrome://*", "about:*"],
+            "URLBlocklist": ["*"],
+            "URLAllowlist": [
+              "{{ url_kiosk }}*",
+              "*ebegembalagens.com.br*",
+              "*emprising.com*",
+              "*greatplacetowork.com*",
+              "*gptw.com*"
+            ],
             "FullscreenAllowed": true
           }
 
-    - name: "4. Configurar Openbox (Full Screen Absoluto e Regras de Janela)"
+    - name: "4. Openbox: Identificação Inteligente via Motor X11"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -41,41 +48,44 @@
           <?xml version="1.0" encoding="UTF-8"?>
           <openbox_config xmlns="http://openbox.org/3.4/rc">
             <applications>
-              <application name="google-chrome" title="*Emprising*">
+              <application name="app-*">
+                <decor>no</decor>
+                <fullscreen>yes</fullscreen>
+              </application>
+
+              <application name="google-chrome">
                 <decor>yes</decor>
                 <position force="yes"><x>center</x><y>center</y></position>
                 <size><width>90%</width><height>90%</height></size>
               </application>
-
-              <application name="google-chrome" title="*Pesquisa de Clima Institucional*">
-                <decor>no</decor>
-                <fullscreen>yes</fullscreen>
-              </application>
             </applications>
             <keyboard>
-              <keybind key="Alt-F4"><action name="Execute"><command>pkill -9 chrome</command></action></keybind>
+              <keybind key="A-F4"><action name="Close"/></keybind>
               <keybind key="C-A-Insert"><action name="Execute"><command>sudo /usr/bin/chvt 4</command></action></keybind>
               <keybind key="C-A-Home"><action name="Execute"><command>pkill -9 chrome && pkill -9 openbox</command></action></keybind>
             </keyboard>
           </openbox_config>
 
-    - name: "5. Mordaça de Teclado (Bloqueio de Foco na Barra de Endereço)"
+    - name: "5. Mordaça de Teclado (Bloqueio de Abas e Foco)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
-          # Mata atalhos de navegação e foco
+          # Impede de focar na barra de endereço
           "true"
             Control + l
           "true"
             Alt + d
+          # Impede de abrir novas abas ou janelas pelo teclado
+          "true"
+            Control + t
+          "true"
+            Control + n
           "true"
             F11
           "true"
             F12
-          "pkill -9 chrome"
-            Alt + F4
           "sudo /sbin/poweroff"
             End
           "sudo /usr/bin/chvt 4"
@@ -83,7 +93,7 @@
           "pkill -9 chrome && pkill -9 openbox"
             Control + Alt + Home
 
-    - name: "6. Script Mestre (kiosk.sh) com Limpeza de Cache"
+    - name: "6. Script Mestre (kiosk.sh) com Limpeza"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
