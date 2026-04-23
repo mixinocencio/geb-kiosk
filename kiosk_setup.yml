@@ -1,22 +1,22 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Camada de Rede no Firewall"
+- name: "Setup Kiosk Blindagem Total - Operação EBEG (Versão Final Consolidada)"
   hosts: quiosques_gptw
   become: yes
 
   tasks:
-    - name: "1. Instalar infraestrutura de base"
+    - name: "1. Instalar infraestrutura de base e utilitários"
       ansible.builtin.apt:
         name: [openbox, lightdm, xbindkeys, xdotool, dbus-x11, lxterminal, wget]
         state: present
         update_cache: yes
 
-    - name: "2. Verificar se o Google Chrome já está instalado"
+    - name: "2. Verificar se o Google Chrome já está instalado (Idempotência)"
       ansible.builtin.command: dpkg -s google-chrome-stable
       register: chrome_check
       ignore_errors: yes
       changed_when: false
 
-    - name: "3. Instalação do Google Chrome (Idempotente)"
+    - name: "3. Instalação do Google Chrome (Apenas se ausente)"
       block:
         - name: "Baixar pacote .deb do Chrome"
           ansible.builtin.get_url:
@@ -29,13 +29,20 @@
             deb: /tmp/google-chrome-stable_current_amd64.deb
             state: present
 
-        - name: "Limpar arquivo temporário"
+        - name: "Remover instalador temporário"
           ansible.builtin.file:
             path: /tmp/google-chrome-stable_current_amd64.deb
             state: absent
       when: chrome_check.rc != 0
 
-    - name: "4. Política Enterprise: Blindagem de Interface (Sem Bloqueio de URL)"
+    - name: "4. Garantir existência dos diretórios de política do Chrome"
+      ansible.builtin.file:
+        path: /etc/opt/chrome/policies/managed
+        state: directory
+        mode: '0755'
+        recurse: yes
+
+    - name: "5. Aplicar Política Enterprise (Sem Bloqueio de URL - Gestão via Firewall)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -51,19 +58,19 @@
             "FullscreenAllowed": true
           }
 
-    - name: "5. Configurar permissão de Sudo"
+    - name: "6. Configurar permissões de Sudo (Acesso de Administrador)"
       ansible.builtin.copy:
         dest: /etc/sudoers.d/kiosk-admin
         content: |
           administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl
         mode: '0440'
 
-    - name: "6. Forçar autologin e sessão Kiosk"
+    - name: "7. Configurar Autologin e Sessão LightDM"
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
         content: "[Seat:*]\nautologin-user=administrador\nautologin-session=kiosk"
 
-    - name: "7. Preparar Diretório do Openbox"
+    - name: "8. Criar estrutura de configuração do Openbox"
       ansible.builtin.file:
         path: "/home/administrador/.config/openbox"
         state: directory
@@ -71,7 +78,7 @@
         group: administrador
         mode: '0755'
 
-    - name: "8. Openbox: Regras de Janela e Atalho Home Único"
+    - name: "9. Configurar Regras de Janela e Atalho 'Home' no Openbox"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -97,14 +104,16 @@
             </keyboard>
           </openbox_config>
 
-    - name: "9. Mordaça de Teclado (xbindkeys - Home Único)"
+    - name: "10. Bloqueio de Teclado e Atalhos (xbindkeys)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
+          # Reinício rápido do Kiosk
           "pkill -9 chrome && pkill -9 openbox"
             Home
+          # Bloqueio de atalhos de navegação e foco
           "true"
             Control + l
           "true"
@@ -117,15 +126,17 @@
             F11
           "true"
             F12
+          # Comandos de Sistema
           "sudo /sbin/poweroff"
             End
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
 
-    - name: "10. Script de Inicialização (kiosk.sh)"
+    - name: "11. Script de Inicialização e Manutenção de Cache (kiosk.sh)"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
+        group: administrador
         mode: '0755'
         content: |
           #!/bin/bash
@@ -133,12 +144,13 @@
           xbindkeys &
           xset s off -dpms
           while true; do
+              # Limpa cache para garantir privacidade em cada reinício
               rm -rf /home/administrador/.config/google-chrome
               google-chrome --app="{{ url_kiosk }}" --incognito --no-first-run --password-store=basic
               sleep 2
           done
 
-    - name: "11. Sessão Kiosk Desktop"
+    - name: "12. Criar Ficheiro de Sessão Desktop"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: |
@@ -147,19 +159,10 @@
           Exec=/home/administrador/kiosk.sh
           Type=Application
 
-    - name: "12. Liberar Troca de Terminais"
-      ansible.builtin.copy:
-        dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
-        content: |
-          Section "ServerFlags"
-              Option "DontVTSwitch" "false"
-              Option "DontZap" "true"
-          EndSection
-
-    - name: "13. Ajustar Permissões e Reiniciar"
+    - name: "13. Garantir Permissões e Aplicar Reboot"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
-      notify: Reboot Tático
+      notify: "Reiniciar Sistema"
 
   handlers:
-    - name: Reboot Tático
+    - name: "Reiniciar Sistema"
       ansible.builtin.reboot:
