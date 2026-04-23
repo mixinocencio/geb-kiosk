@@ -1,0 +1,45 @@
+---
+- name: "Configuração de Wi-Fi e Prioridade de Rede"
+  hosts: quiosques_gptw
+  become: yes
+
+  vars:
+    wifi_ssid: "WFMOBILE"
+    wifi_password: "Sdz@18657"
+    wifi_priority: 100
+
+  tasks:
+    - name: "1. Instalar o NetworkManager e utilitários de Wi-Fi"
+      ansible.builtin.apt:
+        name:
+          - network-manager
+          - wireless-tools
+          - wpasupplicant
+        state: present
+        update_cache: yes
+
+    - name: "2. Garantir que o Wi-Fi não está bloqueado (rfkill)"
+      ansible.builtin.shell: "rfkill unblock wifi"
+
+    - name: "3. Verificar se a ligação Wi-Fi já existe"
+      ansible.builtin.shell: "nmcli -t -f NAME connection show | grep -w '{{ wifi_ssid }}'"
+      register: wifi_exists
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "4. Criar a ligação Wi-Fi caso não exista"
+      ansible.builtin.shell: >
+        nmcli device wifi connect '{{ wifi_ssid }}' 
+        password '{{ wifi_password }}' 
+        name '{{ wifi_ssid }}'
+      when: wifi_exists.rc != 0
+
+    - name: "5. Configurar a prioridade e autoconnect"
+      ansible.builtin.shell: |
+        nmcli connection modify "{{ wifi_ssid }}" connection.autoconnect yes
+        nmcli connection modify "{{ wifi_ssid }}" connection.autoconnect-priority {{ wifi_priority }}
+        nmcli connection modify "{{ wifi_ssid }}" ipv4.method auto
+      changed_when: true
+
+    - name: "6. Garantir que a interface Wi-Fi está ligada"
+      ansible.builtin.shell: "nmcli radio wifi on"
