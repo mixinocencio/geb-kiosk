@@ -1,5 +1,5 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Atalho Home Simplificado)"
+- name: "Setup Kiosk Blindagem Total - Camada de Rede no Firewall"
   hosts: quiosques_gptw
   become: yes
 
@@ -35,7 +35,7 @@
             state: absent
       when: chrome_check.rc != 0
 
-    - name: "4. Política Enterprise: ZERO TRUST (Lista Branca e Sem Tradução)"
+    - name: "4. Política Enterprise: Blindagem de Interface (Sem Bloqueio de URL)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -48,14 +48,6 @@
             "EditBookmarksEnabled": false,
             "AllowFileSelectionDialogs": false,
             "TranslateEnabled": false,
-            "URLBlocklist": ["*"],
-            "URLAllowlist": [
-              "[*.]grupoebeg.com.br",
-              "[*.]emprising.com",
-              "[*.]greatplacetowork.com",
-              "[*.]gptw.com",
-              "{{ url_kiosk }}*"
-            ],
             "FullscreenAllowed": true
           }
 
@@ -79,7 +71,7 @@
         group: administrador
         mode: '0755'
 
-    - name: "8. Openbox: Regras de Janela e Atalho Home"
+    - name: "8. Openbox: Regras de Janela e Atalho Home Único"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -111,10 +103,8 @@
         owner: administrador
         group: administrador
         content: |
-          # Atalho Home Único
           "pkill -9 chrome && pkill -9 openbox"
             Home
-          # Bloqueio de Fuga
           "true"
             Control + l
           "true"
