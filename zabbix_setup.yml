@@ -1,0 +1,48 @@
+---
+- name: "Instalação e Configuração do Zabbix Agent - Nível Monitoramento EBEG"
+  hosts: quiosques_gptw
+  become: yes
+
+  vars:
+    zabbix_server_ip: "192.168.22.20"
+    # O Hostname no Zabbix deve ser igual ao nome da máquina no seu inventário Ansible
+    zabbix_hostname: "{{ inventory_hostname }}"
+
+  tasks:
+    - name: "1. Instalar Zabbix Agent e dependências"
+      ansible.builtin.apt:
+        name: 
+          - zabbix-agent
+        state: present
+        update_cache: yes
+
+    - name: "2. Configurar parâmetro 'Server' (Monitoramento Passivo)"
+      ansible.builtin.lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: '^Server='
+        line: "Server={{ zabbix_server_ip }}"
+        state: present
+
+    - name: "3. Configurar parâmetro 'ServerActive' (Monitoramento Ativo)"
+      ansible.builtin.lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: '^ServerActive='
+        line: "ServerActive={{ zabbix_server_ip }}"
+        state: present
+
+    - name: "4. Configurar 'Hostname' único para o Zabbix"
+      ansible.builtin.lineinfile:
+        path: /etc/zabbix/zabbix_agentd.conf
+        regexp: '^Hostname='
+        line: "Hostname={{ zabbix_hostname }}"
+        state: present
+
+    - name: "5. Garantir que o serviço do Zabbix Agent esteja rodando e habilitado"
+      ansible.builtin.service:
+        name: zabbix-agent
+        state: restarted
+        enabled: yes
+
+    - name: "6. Liberar porta 10050 no firewall local (UFW)"
+      ansible.builtin.shell: "ufw allow 10050/tcp comment 'Zabbix Agent'"
+      ignore_errors: yes

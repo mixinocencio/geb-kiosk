@@ -35,12 +35,11 @@
           ansible.builtin.shell: apt-get install -f -y
           changed_when: false
 
-    - name: "3. Configurar permissão de Sudo sem senha (Poweroff e Terminal)"
+    - name: "3. Configurar permissão de Sudo sem senha (Caminhos Corrigidos)"
       ansible.builtin.copy:
         dest: /etc/sudoers.d/kiosk-admin
         content: |
-          administrador ALL=(ALL) NOPASSWD: /sbin/poweroff
-          administrador ALL=(ALL) NOPASSWD: /bin/chvt
+          administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl
         mode: '0440'
 
     - name: "4. Forçar sessão Kiosk no LightDM"
@@ -52,7 +51,7 @@
           autologin-session=kiosk
           user-session=kiosk
 
-    - name: "5. Configurar xbindkeys (Ninja Mode + Poweroff + Backdoor + Emergency)"
+    - name: "5. Configurar xbindkeys (Sintaxe Rigorosa X11)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
@@ -60,22 +59,23 @@
         content: |
           # MANOBRA NINJA: Alt+F4 mata o processo e o loop reinicia limpo
           "pkill -9 chrome"
-            alt + f4
+            Alt + F4
 
           # DESLIGAMENTO TOTAL: Tecla End desliga o hardware
           "sudo /sbin/poweroff"
             End
 
           # ADMIN BACKDOOR: Ctrl+Alt+Insert cai no terminal TTY4
-          "sudo /bin/chvt 4"
-            control+alt + Insert
+          "sudo /usr/bin/chvt 4"
+            Control + Alt + Insert
 
           # ATALHO DE EMERGÊNCIA: Reinicia navegador e limpa cache
           "pkill -9 chrome && pkill -9 openbox"
-            control+alt + home
+            Control + Alt + Home
 
+          # TRAVA DE ABA: Ignora Ctrl+W
           "true"
-            control + w
+            Control + w
 
     - name: "6. Criar Script Mestre (kiosk.sh) com Auto-Limpeza"
       ansible.builtin.copy:
