@@ -1,10 +1,10 @@
 ---
-- name: "Setup Kiosk Blindado - Operação Loop Infinito"
+- name: "Setup Kiosk Blindado - Operação Tolerância Zero"
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: "1. Instalar pacotes de controle de interface"
+    - name: "1. Garantir pacotes de controle e gerenciamento de janela"
       ansible.builtin.apt:
         name:
           - openbox
@@ -14,14 +14,40 @@
         state: present
         update_cache: yes
 
-    - name: "2. Limpeza de sessões e chaveiros antigos"
+    - name: "2. Limpeza total de configurações conflitantes"
       ansible.builtin.shell: |
-        chmod -x /usr/bin/gnome-keyring-daemon || true
-        rm -rf /home/administrador/.local/share/keyrings/*
         rm -rf /etc/lightdm/lightdm.conf.d/*
+        rm -rf /home/administrador/.config/autostart/*
+        chmod -x /usr/bin/gnome-keyring-daemon || true
       ignore_errors: yes
 
-    - name: "3. Criar o Script Mestre de Execução (O Coração do Kiosk)"
+    - name: "3. Criar diretório de configuração do Openbox"
+      ansible.builtin.file:
+        path: "/home/administrador/.config/openbox"
+        state: directory
+        owner: administrador
+        group: administrador
+        mode: '0755'
+
+    - name: "4. Configurar as travas de teclado (Morte ao Alt+F4)"
+      ansible.builtin.copy:
+        dest: "/home/administrador/.config/openbox/rc.xml"
+        owner: administrador
+        group: administrador
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <openbox_config xmlns="http://openbox.org/3.4/rc">
+            <keyboard>
+              <chainQuitKey>C-g</chainQuitKey>
+              <keybind key="A-F4"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="A-Tab"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="C-t"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="C-n"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="C-S-n"><action name="Execute"><command>true</command></action></keybind>
+            </keyboard>
+          </openbox_config>
+
+    - name: "5. Criar o Script Mestre com Log de Auditoria"
       ansible.builtin.copy:
         dest: "/usr/local/bin/kiosk.sh"
         mode: '0755'
@@ -29,21 +55,23 @@
         group: root
         content: |
           #!/bin/bash
-          # 1. Inicia o gerenciador de janelas em segundo plano
-          openbox &
+          # Redireciona erros para um log para análise do coordenador
+          exec 2> /home/administrador/kiosk_error.log
 
-          # 2. Desabilita proteção de tela
+          # Garante que o Openbox suba com as travas do rc.xml
+          openbox --config-file /home/administrador/.config/openbox/rc.xml &
+
+          # Desabilita gerenciamento de energia
           xset s off
           xset s noblank
           xset -dpms
 
-          # 3. LOOP INFINITO DE MONITORAMENTO
           while true; do
-            # Limpeza de rastro antes de abrir
+            # Purga de dados para garantir amnésia de sessão
             rm -rf /home/administrador/.config/google-chrome
             rm -rf /home/administrador/.cache/google-chrome
 
-            # Execução do Chrome (O script fica travado aqui até o Chrome fechar)
+            # Inicialização do Chrome em modo estéril
             google-chrome-stable \
                 --kiosk \
                 --incognito \
@@ -53,50 +81,23 @@
                 --disable-infobars \
                 --password-store=basic \
                 --disable-session-crashed-bubble \
-                --check-for-update-interval=31536000 \
                 "{{ url_kiosk }}"
 
-            # Se o Chrome fechar (Alt+F4 ou Erro), o script continua aqui
-            echo "Navegador fechado. Reiniciando em 1 segundo..."
+            # Se o processo cair, aguarda 1s e reinicia o ciclo
             sleep 1
           done
 
-    - name: "4. Criar configuração do Openbox para anular o Alt+F4"
-      ansible.builtin.file:
-        path: "/home/administrador/.config/openbox"
-        state: directory
-        owner: administrador
-        group: administrador
-        mode: '0755'
-
-    - name: "5. Blindagem de Teclado no Openbox (rc.xml)"
-      ansible.builtin.copy:
-        dest: "/home/administrador/.config/openbox/rc.xml"
-        owner: administrador
-        group: administrador
-        content: |
-          <?xml version="1.0" encoding="UTF-8"?>
-          <openbox_config xmlns="http://openbox.org/3.4/rc">
-            <keyboard>
-              <keybind key="A-F4"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="A-Tab"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="C-t"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="C-n"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="C-S-n"><action name="Execute"><command>true</command></action></keybind>
-            </keyboard>
-          </openbox_config>
-
-    - name: "6. Definir a Sessão de Kiosk como Padrão do Sistema"
+    - name: "6. Configurar a Sessão de Kiosk no Sistema"
       ansible.builtin.copy:
         dest: "/usr/share/xsessions/kiosk.desktop"
         content: |
           [Desktop Entry]
           Name=Kiosk
-          Comment=Sessão de Kiosk EBEG
+          Comment=Sessao Blindada EBEG
           Exec=/usr/local/bin/kiosk.sh
           Type=Application
 
-    - name: "7. Configurar Autologin Direto para o Usuário Administrador"
+    - name: "7. Forçar Autologin e Sessão Única (LightDM)"
       ansible.builtin.copy:
         dest: "/etc/lightdm/lightdm.conf"
         content: |
@@ -106,7 +107,7 @@
           autologin-user-timeout=0
           user-session=kiosk
 
-    - name: "8. Bloqueio de Teclas de Sistema (Nível Hardware/X11)"
+    - name: "8. Bloqueio de Teclas de Hardware (X11)"
       ansible.builtin.copy:
         dest: "/etc/X11/xorg.conf.d/99-disable-keys.conf"
         content: |
@@ -115,5 +116,8 @@
               Option "DontZap" "true"
           EndSection
 
-    - name: "9. Reiniciar Máquina para Validar Blindagem"
+    - name: "9. Ajustar permissões e Reiniciar"
+      ansible.builtin.shell: "chown -R administrador:administrador /home/administrador/"
+      
+    - name: "10. Reboot Tático"
       ansible.builtin.reboot:
