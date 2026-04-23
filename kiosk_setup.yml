@@ -1,52 +1,54 @@
 ---
-- name: Setup Definitivo de Quiosques (Correção Final de Sintaxe)
+- name: Setup de Kiosk Blindado (Nível Industrial)
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: 0. Limpar resíduos de cache e sessões legadas
-      ansible.builtin.shell: |
-        rm -rf /var/lib/apt/lists/*
-        apt-get clean
-        rm -rf /etc/lightdm/lightdm.conf.d/*
-
-    - name: 1. Atualizar repositórios APT
-      ansible.builtin.apt:
-        update_cache: yes
-      retries: 5
-      delay: 10
-      register: apt_update_result
-      until: apt_update_result is success
-
-    - name: 2. Instalar dependências de sistema
+    - name: 1. Instalar infraestrutura mínima (Openbox e ferramentas)
       ansible.builtin.apt:
         name:
-          - wget
-          - gnupg2
-          - ca-certificates
-          - lightdm
+          - openbox
+          - xdotool
+          - python3-dbus
         state: present
+        update_cache: yes
 
-    - name: 3. Download e Instalação do Google Chrome
-      block:
-        - name: Baixar .deb do Chrome
-          ansible.builtin.get_url:
-            url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-            dest: /tmp/google-chrome-stable_current_amd64.deb
-            mode: '0644'
+    - name: 2. Criar script de loop de execução (Anti-fechamento)
+      ansible.builtin.copy:
+        dest: /usr/local/bin/kiosk.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Desabilita proteção de tela e gerenciamento de energia
+          xset s off
+          xset s noblank
+          xset -dpms
 
-        - name: Instalar pacote .deb
-          ansible.builtin.apt:
-            deb: /tmp/google-chrome-stable_current_amd64.deb
-            state: present
-          ignore_errors: yes
+          # Loop infinito: se o navegador fechar, ele reabre instantaneamente
+          while true; do
+            google-chrome --kiosk --no-first-run --noerrdialogs --disable-infobars --disable-session-crashed-bubble --check-for-update-interval=31536000 "{{ url_kiosk }}"
+            sleep 2
+          done
 
-        - name: Corrigir dependências do Chrome (Fix Broken)
-          ansible.builtin.command: apt-get install -f -y
-          register: fix_result
-          changed_when: "'0 upgraded, 0 newly installed' not in fix_result.stdout"
+    - name: 3. Criar definição de sessão customizada para o LightDM
+      ansible.builtin.copy:
+        dest: /usr/share/xsessions/kiosk.desktop
+        content: |
+          [Desktop Entry]
+          Name=Kiosk
+          Comment=Sessão de Navegador Exclusiva
+          Exec=openbox --startup /usr/local/bin/kiosk.sh
+          Type=Application
 
-    - name: 4. Configurar Autologin (Usuário Administrador)
+    - name: 4. Resetar Chaveiro de Senhas (Remove pedido de senha do Chrome)
+      ansible.builtin.shell: |
+        rm -rf /home/administrador/.local/share/keyrings/*
+        # Cria um chaveiro padrão sem senha
+        python3 -c "import dbus; bus = dbus.SessionBus(); remote_object = bus.get_object('org.freedesktop.secrets', '/org/freedesktop/secrets'); interface = dbus.Interface(remote_object, 'org.freedesktop.Secret.Service'); interface.CreateCollection({'org.freedesktop.Secret.Collection.Label': 'Default'}, '')" || true
+      become_user: administrador
+      ignore_errors: yes
+
+    - name: 5. Configurar Autologin para a nova sessão de Kiosk
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf
         content: |
@@ -54,44 +56,50 @@
           autologin-guest=false
           autologin-user=administrador
           autologin-user-timeout=0
-          user-session=cinnamon
+          user-session=kiosk
         mode: '0644'
 
-    - name: 5. Preparar ambiente de Autostart
+    - name: 6. Blindar Teclado (Desabilitar TTYs e Atalhos de Sistema)
+      ansible.builtin.copy:
+        dest: /etc/X11/xorg.conf.d/99-disable-keys.conf
+        content: |
+          Section "ServerFlags"
+              Option "DontVTSwitch" "true"
+              Option "DontZap" "true"
+          EndSection
+
+          Section "InputClass"
+              Identifier "Keyboard Catchall"
+              MatchIsKeyboard "on"
+              Option "XkbOptions" "terminate:ctrl_alt_bksp, grab:break_actions"
+          EndSection
+
+    - name: 7. Desabilitar Menu de Contexto do Openbox (Botão Direito)
       ansible.builtin.file:
-        path: /home/administrador/.config/autostart
+        path: /home/administrador/.config/openbox
         state: directory
         owner: administrador
-        group: administrador
         mode: '0755'
 
-    - name: 6. Criar atalho do Kiosk (Chrome Fullscreen)
+    - name: 8. Configurar Openbox para ignorar atalhos (Alt+F4, Alt+Tab, etc)
       ansible.builtin.copy:
-        dest: /home/administrador/.config/autostart/kiosk.desktop
-        content: |
-          [Desktop Entry]
-          Type=Application
-          Exec=google-chrome --no-first-run --kiosk --noerrdialogs --disable-infobars {{ url_kiosk }}
-          Hidden=false
-          NoDisplay=false
-          X-GNOME-Autostart-enabled=true
-          Name=Kiosk
+        dest: /home/administrador/.config/openbox/rc.xml
         owner: administrador
-        group: administrador
-        mode: '0644'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <openbox_config xmlns="http://openbox.org/3.4/rc">
+            <keyboard>
+              <chainQuitKey>C-g</chainQuitKey>
+              <keybind key="A-F4"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="A-Tab"><action name="Execute"><command>true</command></action></keybind>
+              <keybind key="A-F2"><action name="Execute"><command>true</command></action></keybind>
+            </keyboard>
+            <mouse>
+              <context name="Root">
+                <mousebind action="Press" button="Right"><action name="Execute"><command>true</command></action></mousebind>
+              </context>
+            </mouse>
+          </openbox_config>
 
-    - name: 7. Limpar sessões Xsession personalizadas
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /home/administrador/.xsession
-        - /home/administrador/.Xsession
-
-    - name: 8. Reiniciar interface gráfica
-      ansible.builtin.service:
-        name: lightdm
-        state: restarted
-      async: 1
-      poll: 0
-      ignore_unreachable: yes
+    - name: 9. Reiniciar Sistema para aplicar blindagem
+      ansible.builtin.reboot:
