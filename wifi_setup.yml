@@ -4,8 +4,8 @@
   become: yes
 
   vars:
-    wifi_ssid: "WFMOBILE"
-    wifi_password: "Sdz@18657"
+    wifi_ssid: "WFLOG"
+    wifi_password: "Ac123456CA"
     wifi_priority: 100
 
   tasks:
