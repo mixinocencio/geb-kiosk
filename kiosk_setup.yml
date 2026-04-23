@@ -1,22 +1,47 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação Zero Trust EBEG"
+- name: "Setup Kiosk Blindagem Total - Operação Zero Trust (Versão Definitiva)"
   hosts: quiosques_gptw
   become: yes
 
   tasks:
-    - name: "1. Instalar infraestrutura de Kiosk"
+    - name: "1. Instalar infraestrutura de Kiosk e pacotes de controle"
       ansible.builtin.apt:
-        name: [openbox, lightdm, xbindkeys, xdotool, dbus-x11, lxterminal, wget]
+        name: 
+          - openbox
+          - lightdm
+          - xbindkeys
+          - xdotool
+          - dbus-x11
+          - lxterminal
+          - wget
         state: present
         update_cache: yes
 
-    - name: "2. Criar Diretórios de Política do Chrome"
+    - name: "2. Download e Instalação do Google Chrome (Redundância)"
+      block:
+        - name: "Baixar pacote .deb do Chrome"
+          ansible.builtin.get_url:
+            url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            dest: /tmp/google-chrome-stable_current_amd64.deb
+            mode: '0644'
+
+        - name: "Instalar Chrome via APT"
+          ansible.builtin.apt:
+            deb: /tmp/google-chrome-stable_current_amd64.deb
+            state: present
+          ignore_errors: yes
+
+        - name: "Corrigir dependências quebradas"
+          ansible.builtin.shell: apt-get install -f -y
+          changed_when: false
+
+    - name: "3. Criar Diretórios de Política do Chrome"
       ansible.builtin.file:
         path: /etc/opt/chrome/policies/managed
         state: directory
         mode: '0755'
 
-    - name: "3. Política Enterprise: ZERO TRUST (Lista Branca Rigorosa)"
+    - name: "4. Política Enterprise: ZERO TRUST Absoluto (Anti-Popups, Fuga e Tradução)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
@@ -28,6 +53,7 @@
             "BookmarkBarEnabled": false,
             "EditBookmarksEnabled": false,
             "AllowFileSelectionDialogs": false,
+            "TranslateEnabled": false,
             "URLBlocklist": ["*"],
             "URLAllowlist": [
               "{{ url_kiosk }}*",
@@ -39,7 +65,31 @@
             "FullscreenAllowed": true
           }
 
-    - name: "4. Openbox: Identificação Inteligente via Motor X11"
+    - name: "5. Configurar permissão de Sudo sem senha"
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/kiosk-admin
+        content: |
+          administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl
+        mode: '0440'
+
+    - name: "6. Forçar sessão Kiosk no LightDM"
+      ansible.builtin.copy:
+        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
+        content: |
+          [Seat:*]
+          autologin-user=administrador
+          autologin-session=kiosk
+          user-session=kiosk
+
+    - name: "7. Preparar Diretório do Openbox"
+      ansible.builtin.file:
+        path: "/home/administrador/.config/openbox"
+        state: directory
+        owner: administrador
+        group: administrador
+        mode: '0755'
+
+    - name: "8. Openbox: Regras de Janela Inteligentes e Controle de Interface"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -66,7 +116,7 @@
             </keyboard>
           </openbox_config>
 
-    - name: "5. Mordaça de Teclado (Bloqueio de Abas e Foco)"
+    - name: "9. Mordaça de Teclado (Bloqueio Físico via xbindkeys)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
@@ -77,7 +127,7 @@
             Control + l
           "true"
             Alt + d
-          # Impede de abrir novas abas ou janelas pelo teclado
+          # Impede de abrir novas abas ou janelas
           "true"
             Control + t
           "true"
@@ -86,23 +136,28 @@
             F11
           "true"
             F12
+          # Desligamento por hardware
           "sudo /sbin/poweroff"
             End
+          # Admin Backdoors (Redundância do Openbox)
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
           "pkill -9 chrome && pkill -9 openbox"
             Control + Alt + Home
 
-    - name: "6. Script Mestre (kiosk.sh) com Limpeza"
+    - name: "10. Script Mestre (kiosk.sh) com Loop Definitivo"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
+        group: administrador
         mode: '0755'
         content: |
           #!/bin/bash
           openbox --config-file /home/administrador/.config/openbox/rc.xml &
           xbindkeys &
-          xset s off -dpms
+          xset s off
+          xset s noblank
+          xset -dpms
 
           while true; do
               rm -rf /home/administrador/.config/google-chrome
@@ -118,8 +173,26 @@
               sleep 2
           done
 
-    - name: "7. Garantir permissões e Reboot"
+    - name: "11. Criar a definição da Sessão Kiosk"
+      ansible.builtin.copy:
+        dest: /usr/share/xsessions/kiosk.desktop
+        content: |
+          [Desktop Entry]
+          Name=Kiosk Mode
+          Exec=/home/administrador/kiosk.sh
+          Type=Application
+
+    - name: "12. Ajustar Terminais (Liberar VTSwitch)"
+      ansible.builtin.copy:
+        dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
+        content: |
+          Section "ServerFlags"
+              Option "DontVTSwitch" "false"
+              Option "DontZap" "true"
+          EndSection
+
+    - name: "13. Garantir Permissões"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
-    
-    - name: "8. Reboot Tático"
+
+    - name: "14. Reboot Tático"
       ansible.builtin.reboot:
