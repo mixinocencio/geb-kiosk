@@ -1,43 +1,49 @@
 ---
-- name: "Setup Kiosk Blindado - Versão Final com Loop e Blindagem Total"
+- name: "Setup Kiosk Blindado - Operação Loop Infinito"
   hosts: quiosques
   become: yes
 
   tasks:
-    - name: "1. Instalar infraestrutura de Kiosk (Openbox e Dependências)"
+    - name: "1. Instalar pacotes de controle de interface"
       ansible.builtin.apt:
         name:
           - openbox
           - xdotool
           - dbus-x11
-          - xdg-utils
-          - sed
+          - x11-xserver-utils
         state: present
         update_cache: yes
 
-    - name: "2. Blindagem de Senha: Desativar GNOME Keyring Daemon"
+    - name: "2. Limpeza de sessões e chaveiros antigos"
       ansible.builtin.shell: |
         chmod -x /usr/bin/gnome-keyring-daemon || true
         rm -rf /home/administrador/.local/share/keyrings/*
+        rm -rf /etc/lightdm/lightdm.conf.d/*
       ignore_errors: yes
 
-    - name: "3. Criar Script de Execução com Loop e Auto-Limpeza (kiosk.sh)"
+    - name: "3. Criar o Script Mestre de Execução (O Coração do Kiosk)"
       ansible.builtin.copy:
-        dest: /usr/local/bin/kiosk.sh
+        dest: "/usr/local/bin/kiosk.sh"
         mode: '0755'
+        owner: root
+        group: root
         content: |
           #!/bin/bash
-          # Desativa proteções de tela e economia de energia
+          # 1. Inicia o gerenciador de janelas em segundo plano
+          openbox &
+
+          # 2. Desabilita proteção de tela
           xset s off
           xset s noblank
           xset -dpms
 
+          # 3. LOOP INFINITO DE MONITORAMENTO
           while true; do
-            # LIMPEZA TOTAL: Garante que cada sessão comece do zero
+            # Limpeza de rastro antes de abrir
             rm -rf /home/administrador/.config/google-chrome
             rm -rf /home/administrador/.cache/google-chrome
 
-            # DISPARO DO CHROME EM MODO BLINDADO
+            # Execução do Chrome (O script fica travado aqui até o Chrome fechar)
             google-chrome-stable \
                 --kiosk \
                 --incognito \
@@ -50,73 +56,64 @@
                 --check-for-update-interval=31536000 \
                 "{{ url_kiosk }}"
 
-            # Se o navegador fechar, reinicia em 1s
+            # Se o Chrome fechar (Alt+F4 ou Erro), o script continua aqui
+            echo "Navegador fechado. Reiniciando em 1 segundo..."
             sleep 1
           done
 
-    - name: "4. Configurar Openbox para BLOQUEAR Atalhos de Teclado"
+    - name: "4. Criar configuração do Openbox para anular o Alt+F4"
       ansible.builtin.file:
-        path: /home/administrador/.config/openbox
+        path: "/home/administrador/.config/openbox"
         state: directory
         owner: administrador
+        group: administrador
         mode: '0755'
 
-    - name: "5. Criar Regras do Openbox (Mata Alt+F4, Alt+Tab e Outros)"
+    - name: "5. Blindagem de Teclado no Openbox (rc.xml)"
       ansible.builtin.copy:
-        dest: /home/administrador/.config/openbox/rc.xml
+        dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
+        group: administrador
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <openbox_config xmlns="http://openbox.org/3.4/rc">
             <keyboard>
               <keybind key="A-F4"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="A-Tab"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="A-F2"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="C-A-Delete"><action name="Execute"><command>true</command></action></keybind>
-              <keybind key="W-d"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="C-t"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="C-n"><action name="Execute"><command>true</command></action></keybind>
               <keybind key="C-S-n"><action name="Execute"><command>true</command></action></keybind>
             </keyboard>
-            <mouse>
-              <context name="Root">
-                <mousebind action="Press" button="Right"><action name="Execute"><command>true</command></action></mousebind>
-              </context>
-            </mouse>
           </openbox_config>
 
-    - name: "6. Blindar Terminais (Impede Ctrl+Alt+F1...F12)"
+    - name: "6. Definir a Sessão de Kiosk como Padrão do Sistema"
       ansible.builtin.copy:
-        dest: /etc/X11/xorg.conf.d/99-disable-keys.conf
+        dest: "/usr/share/xsessions/kiosk.desktop"
+        content: |
+          [Desktop Entry]
+          Name=Kiosk
+          Comment=Sessão de Kiosk EBEG
+          Exec=/usr/local/bin/kiosk.sh
+          Type=Application
+
+    - name: "7. Configurar Autologin Direto para o Usuário Administrador"
+      ansible.builtin.copy:
+        dest: "/etc/lightdm/lightdm.conf"
+        content: |
+          [Seat:*]
+          autologin-guest=false
+          autologin-user=administrador
+          autologin-user-timeout=0
+          user-session=kiosk
+
+    - name: "8. Bloqueio de Teclas de Sistema (Nível Hardware/X11)"
+      ansible.builtin.copy:
+        dest: "/etc/X11/xorg.conf.d/99-disable-keys.conf"
         content: |
           Section "ServerFlags"
               Option "DontVTSwitch" "true"
               Option "DontZap" "true"
           EndSection
 
-    - name: "7. Definir Chrome como Navegador Padrão"
-      ansible.builtin.shell: |
-        xdg-settings set default-web-browser google-chrome.desktop
-      become_user: administrador
-
-    - name: "8. Configurar Sessão e Autologin (LightDM)"
-      ansible.builtin.copy:
-        dest: "{{ item.dest }}"
-        content: "{{ item.content }}"
-      loop:
-        - dest: "/usr/share/xsessions/kiosk.desktop"
-          content: |
-            [Desktop Entry]
-            Name=Kiosk
-            Exec=openbox --startup /usr/local/bin/kiosk.sh
-            Type=Application
-        - dest: "/etc/lightdm/lightdm.conf"
-          content: |
-            [Seat:*]
-            autologin-guest=false
-            autologin-user=administrador
-            autologin-user-timeout=0
-            user-session=kiosk
-
-    - name: "9. Reiniciar para Aplicar a Blindagem Final"
+    - name: "9. Reiniciar Máquina para Validar Blindagem"
       ansible.builtin.reboot:
