@@ -1,23 +1,38 @@
 ---
-- name: "Setup Kiosk Blindado - Versão Janelas Inteligentes (App Mode)"
+- name: "Setup Kiosk Blindagem Total - Operação GPTW EBEG"
   hosts: quiosques_gptw
   become: yes
 
   tasks:
-    - name: "1. Instalar infraestrutura de Kiosk e pacotes de controle"
+    - name: "1. Instalar infraestrutura de Kiosk"
       ansible.builtin.apt:
         name: [openbox, lightdm, xbindkeys, xdotool, dbus-x11, lxterminal, wget]
         state: present
         update_cache: yes
 
-    - name: "2. Configurar Regras de Janela do Openbox (rc.xml)"
+    - name: "2. Criar Diretórios de Política do Chrome"
       ansible.builtin.file:
-        path: "/home/administrador/.config/openbox"
+        path: /etc/opt/chrome/policies/managed
         state: directory
-        owner: administrador
-        group: administrador
+        mode: '0755'
 
-    - name: "3. Aplicar Lógica de Janelas (Home vs Pesquisa Emprising)"
+    - name: "3. Implementar Política de Segurança Enterprise (Anti-Fuga)"
+      ansible.builtin.copy:
+        dest: /etc/opt/chrome/policies/managed/policy.json
+        content: |
+          {
+            "PasswordManagerEnabled": false,
+            "DeveloperToolsDisabled": true,
+            "ContextMenuEnabled": false,
+            "ShowHomeButton": false,
+            "BookmarkBarEnabled": false,
+            "EditBookmarksEnabled": false,
+            "AllowFileSelectionDialogs": false,
+            "URLBlocklist": ["chrome://*", "about:*"],
+            "FullscreenAllowed": true
+          }
+
+    - name: "4. Configurar Openbox (Full Screen Absoluto e Regras de Janela)"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -26,24 +41,17 @@
           <?xml version="1.0" encoding="UTF-8"?>
           <openbox_config xmlns="http://openbox.org/3.4/rc">
             <applications>
-              <application name="google-chrome">
+              <application name="google-chrome" title="*Emprising*">
                 <decor>yes</decor>
-                <position force="yes">
-                  <x>center</x>
-                  <y>center</y>
-                </position>
-                <size>
-                  <width>90%</width>
-                  <height>90%</height>
-                </size>
+                <position force="yes"><x>center</x><y>center</y></position>
+                <size><width>90%</width><height>90%</height></size>
               </application>
 
-              <application name="google-chrome" title="*Pesquisa de Clima Institucional | Grupo EBEG*">
+              <application name="google-chrome" title="*Pesquisa de Clima Institucional*">
                 <decor>no</decor>
-                <maximized>true</maximized>
+                <fullscreen>yes</fullscreen>
               </application>
             </applications>
-            
             <keyboard>
               <keybind key="Alt-F4"><action name="Execute"><command>pkill -9 chrome</command></action></keybind>
               <keybind key="C-A-Insert"><action name="Execute"><command>sudo /usr/bin/chvt 4</command></action></keybind>
@@ -51,28 +59,21 @@
             </keyboard>
           </openbox_config>
 
-    - name: "4. Configurar permissão de Sudo sem senha (Caminhos Corrigidos)"
-      ansible.builtin.copy:
-        dest: /etc/sudoers.d/kiosk-admin
-        content: |
-          administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl
-        mode: '0440'
-
-    - name: "5. Forçar sessão Kiosk no LightDM"
-      ansible.builtin.copy:
-        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
-        content: |
-          [Seat:*]
-          autologin-user=administrador
-          autologin-session=kiosk
-          user-session=kiosk
-
-    - name: "6. Configurar xbindkeys (Redundância de Atalhos)"
+    - name: "5. Mordaça de Teclado (Bloqueio de Foco na Barra de Endereço)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
         group: administrador
         content: |
+          # Mata atalhos de navegação e foco
+          "true"
+            Control + l
+          "true"
+            Alt + d
+          "true"
+            F11
+          "true"
+            F12
           "pkill -9 chrome"
             Alt + F4
           "sudo /sbin/poweroff"
@@ -81,62 +82,34 @@
             Control + Alt + Insert
           "pkill -9 chrome && pkill -9 openbox"
             Control + Alt + Home
-          "true"
-            Control + w
 
-    - name: "7. Script Mestre (kiosk.sh) no Modo --app"
+    - name: "6. Script Mestre (kiosk.sh) com Limpeza de Cache"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
-        group: administrador
         mode: '0755'
         content: |
           #!/bin/bash
           openbox --config-file /home/administrador/.config/openbox/rc.xml &
           xbindkeys &
-          xset s off
-          xset s noblank
-          xset -dpms
+          xset s off -dpms
 
           while true; do
               rm -rf /home/administrador/.config/google-chrome
               rm -rf /home/administrador/.cache/google-chrome
               
-              # ATENÇÃO: Mudamos de --kiosk para --app
               google-chrome \
                   --app="{{ url_kiosk }}" \
                   --incognito \
                   --no-first-run \
-                  --disable-infobars \
-                  --disable-session-crashed-bubble \
-                  --password-store=basic \
                   --disable-translate \
-                  --disable-features=Translate
+                  --disable-features=Translate,PrivacySandboxSettings4 \
+                  --password-store=basic
               sleep 2
           done
 
-    - name: "8. Criar a definição da Sessão (kiosk.desktop)"
-      ansible.builtin.copy:
-        dest: /usr/share/xsessions/kiosk.desktop
-        content: |
-          [Desktop Entry]
-          Name=Kiosk Mode
-          Exec=/home/administrador/kiosk.sh
-          Type=Application
-
-    - name: "9. Ajustar Terminais (Liberar VTSwitch)"
-      ansible.builtin.copy:
-        dest: /etc/X11/xorg.conf.d/99-enable-keys.conf
-        content: |
-          Section "ServerFlags"
-              Option "DontVTSwitch" "false"
-              Option "DontZap" "true"
-          EndSection
-
-    - name: "10. Garantir permissões e Reiniciar"
+    - name: "7. Garantir permissões e Reboot"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
-      notify: Reboot Tático
-
-  handlers:
-    - name: Reboot Tático
+    
+    - name: "8. Reboot Tático"
       ansible.builtin.reboot:
