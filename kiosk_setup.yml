@@ -1,115 +1,76 @@
 ---
-# =============================================================================
-# Playbook: configuração de quiosque (LightDM + Cinnamon + Google Chrome)
-# =============================================================================
-# Arquitetura:
-# - Variável de grupo url_kiosk: definida por contexto no hosts.ini ([grupo:vars]).
-# - Conexão e elevação: ansible_user / ansible_ssh_pass / ansible_become_pass no inventário.
-# - Nenhuma URL ou usuário sensível é definido em vars: no topo deste arquivo.
-# - Pacote Chrome: instalação a partir de .deb em files/ (veja README em files/).
-# =============================================================================
-
-- name: Configurar quiosque Linux (Chrome kiosk + LightDM + Cinnamon)
+- name: Setup Militar de Quiosques (Fábrica, RH e GPTW)
   hosts: quiosques
-  gather_facts: true
-  become: true
-
-  pre_tasks:
-    - name: Garantir que url_kiosk foi definida no grupo do host
-      ansible.builtin.assert:
-        that:
-          - url_kiosk is defined
-          - url_kiosk | length > 0
-        fail_msg: >-
-          Defina url_kiosk em [quiosques_fabrica:vars], [quiosques_rh:vars] ou grupo equivalente no hosts.ini.
+  become: yes
 
   tasks:
-    - name: Atualizar índice de pacotes (apt update)
+    - name: 1. Atualizar repositórios APT
       ansible.builtin.apt:
-        update_cache: true
-        cache_valid_time: 3600
+        update_cache: yes
 
-    - name: Verificar se o .deb do Google Chrome existe no control node
-      ansible.builtin.stat:
-        path: "{{ playbook_dir }}/files/google-chrome-stable_current_amd64.deb"
-      register: chrome_deb_stat
-      delegate_to: localhost
-      run_once: true
-
-    - name: Falhar com instrução se o pacote .deb do Chrome não estiver em files/
-      ansible.builtin.fail:
-        msg: >-
-          Coloque o arquivo google-chrome-stable_current_amd64.deb em {{ playbook_dir }}/files/
-          antes de executar este playbook (instalação apenas via pacote .deb).
-      when: not chrome_deb_stat.stat.exists
-
-    - name: Copiar pacote Google Chrome (.deb) para o alvo
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/files/google-chrome-stable_current_amd64.deb"
-        dest: /tmp/google-chrome-stable.deb
-        mode: "0644"
-      become: true
-
-    - name: Instalar Google Chrome a partir do pacote .deb
-      ansible.builtin.apt:
-        deb: /tmp/google-chrome-stable.deb
-        state: present
-      become: true
-
-    - name: Corrigir dependências após instalação do .deb (se necessário)
-      ansible.builtin.apt:
-        fix_broken: true
-      become: true
-
-    - name: Garantir LightDM e sessão Cinnamon
+    - name: 2. Instalar dependências básicas
       ansible.builtin.apt:
         name:
-          - lightdm
-          - cinnamon
+          - wget
+          - gnupg2
+          - ca-certificates
         state: present
-      become: true
 
-    - name: Garantir diretório de snippets do LightDM
-      ansible.builtin.file:
-        path: /etc/lightdm/lightdm.conf.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      become: true
+    - name: 3. Baixar instalador do Google Chrome
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        dest: /tmp/google-chrome-stable_current_amd64.deb
+        mode: '0644'
 
-    - name: Configurar autologin LightDM com sessão Cinnamon
+    - name: 4. Instalar Google Chrome via .deb
+      ansible.builtin.apt:
+        deb: /tmp/google-chrome-stable_current_amd64.deb
+        state: present
+      ignore_errors: yes
+
+    - name: 5. Corrigir dependências quebradas (Fix Broken)
+      ansible.builtin.command: apt-get install -f -y
+      register: fix_result
+      changed_when: "'0 atualizados, 0 novos instalados' not in fix_result.stdout and '0 upgraded, 0 newly installed' not in fix_result.stdout"
+
+    - name: 6. Configurar Autologin no LightDM
       ansible.builtin.copy:
-        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-cinnamon.conf
-        owner: root
-        group: root
-        mode: "0644"
+        dest: /etc/lightdm/lightdm.conf
         content: |
           [Seat:*]
-          autologin-user={{ ansible_user }}
-          autologin-session=cinnamon
+          autologin-guest=false
+          autologin-user=administrador
+          autologin-user-timeout=0
           user-session=cinnamon
-      become: true
-      notify: Reiniciar LightDM
+        mode: '0644'
 
-    - name: Instalar atalho kiosk.desktop (autostart global)
+    - name: 7. Garantir diretório de autostart para o usuário administrador
+      ansible.builtin.file:
+        path: /home/administrador/.config/autostart
+        state: directory
+        owner: administrador
+        group: administrador
+        mode: '0755'
+
+    - name: 8. Criar atalho do Kiosk (Chrome em tela cheia)
       ansible.builtin.copy:
-        dest: /etc/xdg/autostart/kiosk.desktop
-        owner: root
-        group: root
-        mode: "0644"
+        dest: /home/administrador/.config/autostart/kiosk.desktop
         content: |
           [Desktop Entry]
           Type=Application
-          Name=Quiosque EBEG
-          Comment=Inicia Chrome/Chromium em modo quiosque; URL vem do grupo (url_kiosk) no hosts.ini.
-          Exec=sh -c 'if command -v google-chrome >/dev/null 2>&1; then google-chrome --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; elif command -v chromium-browser >/dev/null 2>&1; then chromium-browser --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; else chromium --password-store=basic --no-first-run --kiosk --incognito "{{ url_kiosk }}"; fi'
+          Exec=google-chrome --no-first-run --kiosk {{ url_kiosk }}
+          Hidden=false
+          NoDisplay=false
           X-GNOME-Autostart-enabled=true
-      become: true
+          Name=Kiosk
+        owner: administrador
+        group: administrador
+        mode: '0644'
 
-  handlers:
-    - name: Reiniciar LightDM
+    - name: 9. Reiniciar LightDM para aplicar (A tela vai piscar)
       ansible.builtin.service:
         name: lightdm
         state: restarted
-      become: true
+      async: 1
+      poll: 0
+      ignore_unreachable: yes
