@@ -1,6 +1,6 @@
 ---
 - name: "Setup Kiosk Blindagem Total - Operação EBEG (Versão Final Consolidada)"
-  hosts: quiosques_gptw
+  hosts: all
   become: yes
 
   tasks:
