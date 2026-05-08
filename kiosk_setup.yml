@@ -1,5 +1,5 @@
 ---
-- name: "Setup Kiosk Blindagem Total - Operação EBEG (Versão com Persistência)"
+- name: "Setup Kiosk Blindagem Total - Operação EBEG (Versão Final Consolidada)"
   hosts: all
   become: yes
 
@@ -33,19 +33,21 @@
             state: absent
       when: chrome_check.rc != 0
 
-    - name: "4. Garantir diretórios de política"
+    - name: "4. Garantir diretórios de política do Chrome"
       ansible.builtin.file:
         path: /etc/opt/chrome/policies/managed
         state: directory
         mode: '0755'
         recurse: yes
 
-    - name: "5. Aplicar Política Enterprise (Dinâmica para Senhas)"
+    - name: "5. Aplicar Política Enterprise (Dinâmica e Anti-Login Google)"
       ansible.builtin.copy:
         dest: /etc/opt/chrome/policies/managed/policy.json
         content: |
           {
             "PasswordManagerEnabled": {{ 'true' if persistent_session | default(false) else 'false' }},
+            "SyncDisabled": true,
+            "SigninAllowed": false,
             "DeveloperToolsDisabled": true,
             "ContextMenuEnabled": false,
             "ShowHomeButton": false,
@@ -67,7 +69,16 @@
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
         content: "[Seat:*]\nautologin-user=administrador\nautologin-session=kiosk"
 
-    - name: "8. Configurar Openbox (rc.xml)"
+    - name: "8. Garantir estrutura de pastas do Openbox (Correção de Erro)"
+      ansible.builtin.file:
+        path: "/home/administrador/.config/openbox"
+        state: directory
+        owner: administrador
+        group: administrador
+        mode: '0755'
+        recurse: yes
+
+    - name: "9. Configurar Openbox (rc.xml)"
       ansible.builtin.copy:
         dest: "/home/administrador/.config/openbox/rc.xml"
         owner: administrador
@@ -93,7 +104,7 @@
             </keyboard>
           </openbox_config>
 
-    - name: "9. Bloqueio de Teclado (xbindkeys)"
+    - name: "10. Bloqueio de Teclado (xbindkeys)"
       ansible.builtin.copy:
         dest: /home/administrador/.xbindkeysrc
         owner: administrador
@@ -118,7 +129,7 @@
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
 
-    - name: "10. Script de Inicialização Dinâmico (kiosk.sh)"
+    - name: "11. Script de Inicialização Dinâmico (kiosk.sh)"
       ansible.builtin.copy:
         dest: /home/administrador/kiosk.sh
         owner: administrador
@@ -130,12 +141,11 @@
           xbindkeys &
           xset s off -dpms
           while true; do
-              # A limpeza do diretório de configuração só ocorre se a sessão NÃO for persistente
+              # Limpeza condicional baseada na variável persistent_session do hosts.ini
               {% if not persistent_session | default(false) %}
               rm -rf /home/administrador/.config/google-chrome
               {% endif %}
               
-              # Modo Incognito é desativado para a Fábrica para permitir gravar sessões
               google-chrome \
                   --app="{{ url_kiosk }}" \
                   {{ '--incognito' if not persistent_session | default(false) else '' }} \
@@ -144,12 +154,12 @@
               sleep 2
           done
 
-    - name: "11. Criar Ficheiro de Sessão Desktop"
+    - name: "12. Criar Ficheiro de Sessão Desktop"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: "[Desktop Entry]\nName=Kiosk Mode\nExec=/home/administrador/kiosk.sh\nType=Application"
 
-    - name: "12. Garantir Permissões e Aplicar Reboot"
+    - name: "13. Garantir Permissões e Aplicar Reboot"
       ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
       notify: "Reiniciar Sistema"
 
