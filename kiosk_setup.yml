@@ -248,6 +248,99 @@
       ansible.builtin.shell: chown -R {{ target_user }}:{{ target_user }} /home/{{ target_user }}/
       notify: "Reiniciar Sistema"
 
+    - name: "16. Configurar e Blindar Papel de Parede Corporativo (Wallpaper)"
+      block:
+        - name: "16.1 Copiar imagem do papel de parede para /usr/share/backgrounds/"
+          ansible.builtin.copy:
+            src: "{{ custom_wallpaper }}"
+            dest: "/usr/share/backgrounds/{{ custom_wallpaper | basename }}"
+            mode: '0644'
+            owner: root
+            group: root
+
+        - name: "16.2 Criar diretório de configuração XFCE para canais XML"
+          ansible.builtin.file:
+            path: "/home/{{ target_user }}/.config/xfce4/xfconf/xfce-perchannel-xml"
+            state: directory
+            mode: '0755'
+            owner: "{{ target_user }}"
+            group: "{{ target_user }}"
+
+        - name: "16.3 Configurar papel de parede blindado em todos os monitores e workspaces (xfce4-desktop.xml)"
+          ansible.builtin.copy:
+            dest: "/home/{{ target_user }}/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
+            mode: '0444'
+            owner: root
+            group: root
+            content: |
+              <?xml version="1.0" encoding="UTF-8"?>
+              <channel name="xfce4-desktop" version="1.0">
+                <property name="backdrop" type="empty">
+                  <property name="screen0" type="empty">
+                    <property name="monitor0" type="empty">
+                      <property name="workspace0" type="empty">
+                        <property name="color-style" type="int" value="0"/>
+                        <property name="image-style" type="int" value="5"/>
+                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
+                      </property>
+                    </property>
+                    <property name="monitorVirtual1" type="empty">
+                      <property name="workspace0" type="empty">
+                        <property name="color-style" type="int" value="0"/>
+                        <property name="image-style" type="int" value="5"/>
+                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
+                      </property>
+                    </property>
+                    <property name="monitorDP-1" type="empty">
+                      <property name="workspace0" type="empty">
+                        <property name="color-style" type="int" value="0"/>
+                        <property name="image-style" type="int" value="5"/>
+                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
+                      </property>
+                    </property>
+                    <property name="monitorHDMI-A-1" type="empty">
+                      <property name="workspace0" type="empty">
+                        <property name="color-style" type="int" value="0"/>
+                        <property name="image-style" type="int" value="5"/>
+                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
+                      </property>
+                    </property>
+                  </property>
+                </property>
+              </channel>
+          notify: "Reiniciar Sistema"
+
+        - name: "16.4 Atualizar papel de parede ao vivo via xfconf se a sessão estiver ativa"
+          ansible.builtin.shell: |
+            for prop in $(sudo -u {{ target_user }} DISPLAY=:0 xfconf-query -c xfce4-desktop -p /backdrop -l 2>/dev/null | grep last-image); do
+              sudo -u {{ target_user }} DISPLAY=:0 xfconf-query -c xfce4-desktop -p "$prop" -s "/usr/share/backgrounds/{{ custom_wallpaper | basename }}" 2>/dev/null || true
+            done
+          failed_when: false
+
+        - name: "16.5 Garantir diretório de bloqueio Kiosk do XFCE (/etc/xdg/xfce4/kiosk/)"
+          ansible.builtin.file:
+            path: /etc/xdg/xfce4/kiosk
+            state: directory
+            mode: '0755'
+            owner: root
+            group: root
+
+        - name: "16.6 Blindar área de trabalho contra alteração de papel de parede (kioskrc)"
+          ansible.builtin.copy:
+            dest: /etc/xdg/xfce4/kiosk/kioskrc
+            mode: '0644'
+            owner: root
+            group: root
+            content: |
+              [xfdesktop]
+              CustomizeBackdrop=NONE
+              CustomizeDesktopMenu=NONE
+              CustomizeWindowlist=NONE
+              CustomizeDesktopIcons=NONE
+      when:
+        - desktop_session | default('kiosk') == 'xfce'
+        - custom_wallpaper is defined
+
   handlers:
     - name: "Reiniciar Sistema"
       ansible.builtin.reboot:
