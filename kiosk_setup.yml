@@ -15,16 +15,27 @@
         create_home: yes
         state: present
 
+    - name: "0.1 Aguardar liberação de locks do APT e desativar auto-updater (mintupdate/aptk)"
+      ansible.builtin.shell: |
+        systemctl stop apt-daily.service apt-daily-upgrade.service mintupdate.service 2>/dev/null || true
+        killall -9 aptk mintupdate mintupdate-cli unattended-upgrades 2>/dev/null || true
+        while fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
+          sleep 2
+        done
+      changed_when: false
+
     - name: "1. Instalar infraestrutura de base e utilitários"
       ansible.builtin.apt:
         name: [openbox, lightdm, xbindkeys, xdotool, dbus-x11, lxterminal, wget]
         state: present
         update_cache: yes
+        lock_timeout: 300
 
     - name: "1.1 Instalar suporte a impressoras (CUPS e drivers)"
       ansible.builtin.apt:
         name: [cups, cups-client, cups-bsd, printer-driver-all]
         state: present
+        lock_timeout: 300
       when: install_printers | default(false) | bool
 
     - name: "2. Verificar se o Google Chrome já está instalado"
@@ -44,6 +55,7 @@
           ansible.builtin.apt:
             deb: /tmp/google-chrome-stable_current_amd64.deb
             state: present
+            lock_timeout: 300
         - name: "Remover instalador temporário"
           ansible.builtin.file:
             path: /tmp/google-chrome-stable_current_amd64.deb
@@ -197,8 +209,11 @@
           - transmission-common
           - hypnotix
           - drawing
+          - mintupdate
+          - mintupdate-cli
         state: absent
         purge: yes
+        lock_timeout: 300
       when: desktop_hardening | default(false) | bool
 
     - name: "14. Instalar e Configurar Acesso Remoto VNC (x11vnc)"
@@ -207,6 +222,7 @@
           ansible.builtin.apt:
             name: x11vnc
             state: present
+            lock_timeout: 300
 
         - name: "14.2 Gerar arquivo de senha VNC (/etc/x11vnc.pass)"
           ansible.builtin.shell: |
