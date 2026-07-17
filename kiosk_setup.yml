@@ -66,13 +66,15 @@
             "SyncDisabled": true,
             "SigninAllowed": false,
             "DeveloperToolsDisabled": true,
-            "ContextMenuEnabled": false,
-            "ShowHomeButton": false,
-            "BookmarkBarEnabled": false,
-            "EditBookmarksEnabled": false,
+            "ContextMenuEnabled": {{ 'false' if desktop_session | default('kiosk') == 'kiosk' else 'true' }},
+            "ShowHomeButton": {{ 'false' if desktop_session | default('kiosk') == 'kiosk' else 'true' }},
+            "BookmarkBarEnabled": {{ 'false' if desktop_session | default('kiosk') == 'kiosk' else 'true' }},
+            "EditBookmarksEnabled": {{ 'false' if desktop_session | default('kiosk') == 'kiosk' else 'true' }},
             "AllowFileSelectionDialogs": {{ 'true' if allow_file_selection | default(false) else 'false' }},
             "TranslateEnabled": false,
-            "FullscreenAllowed": true
+            "FullscreenAllowed": true,
+            "RestoreOnStartup": 4,
+            "RestoreOnStartupURLs": ["{{ url_kiosk }}"]
           }
 
     - name: "6. Configurar permissões de Sudo"
@@ -84,7 +86,7 @@
     - name: "7. Configurar Autologin e Sessão LightDM"
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
-        content: "[Seat:*]\nautologin-user={{ target_user }}\nautologin-session=kiosk"
+        content: "[Seat:*]\nautologin-user={{ target_user }}\nautologin-session={{ desktop_session | default('kiosk') }}"
 
     - name: "8. Garantir estrutura de pastas do Openbox (Correção de Erro)"
       ansible.builtin.file:
@@ -94,6 +96,7 @@
         group: "{{ target_user }}"
         mode: '0755'
         recurse: yes
+      when: desktop_session | default('kiosk') == 'kiosk'
 
     - name: "9. Configurar Openbox (rc.xml)"
       ansible.builtin.copy:
@@ -120,6 +123,7 @@
               <keybind key="C-A-Insert"><action name="Execute"><command>sudo /usr/bin/chvt 4</command></action></keybind>
             </keyboard>
           </openbox_config>
+      when: desktop_session | default('kiosk') == 'kiosk'
 
     - name: "10. Bloqueio de Teclado (xbindkeys)"
       ansible.builtin.copy:
@@ -145,6 +149,7 @@
             End
           "sudo /usr/bin/chvt 4"
             Control + Alt + Insert
+      when: desktop_session | default('kiosk') == 'kiosk'
 
     - name: "11. Script de Inicialização Dinâmico (kiosk.sh)"
       ansible.builtin.copy:
@@ -170,13 +175,33 @@
                   --password-store=basic
               sleep 2
           done
+      when: desktop_session | default('kiosk') == 'kiosk'
 
     - name: "12. Criar Ficheiro de Sessão Desktop"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
         content: "[Desktop Entry]\nName=Kiosk Mode\nExec=/home/{{ target_user }}/kiosk.sh\nType=Application"
+      when: desktop_session | default('kiosk') == 'kiosk'
 
-    - name: "13. Garantir Permissões e Aplicar Reboot"
+    - name: "13. Hardening do Desktop (Remover jogos e aplicativos improdutivos)"
+      ansible.builtin.apt:
+        name:
+          - aisleriot
+          - gnome-mahjongg
+          - gnome-mines
+          - gnome-sudoku
+          - hexchat
+          - pidgin
+          - thunderbird
+          - transmission-gtk
+          - transmission-common
+          - hypnotix
+          - drawing
+        state: absent
+        purge: yes
+      when: desktop_hardening | default(false) | bool
+
+    - name: "14. Garantir Permissões e Aplicar Reboot"
       ansible.builtin.shell: chown -R {{ target_user }}:{{ target_user }} /home/{{ target_user }}/
       notify: "Reiniciar Sistema"
 
