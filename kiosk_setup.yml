@@ -3,12 +3,29 @@
   hosts: all
   become: yes
 
+  vars:
+    target_user: "{{ kiosk_user | default('administrador') }}"
+
   tasks:
+    - name: "0. Garantir criação do usuário do Quiosque"
+      ansible.builtin.user:
+        name: "{{ target_user }}"
+        password: "{{ kiosk_password | default('administrador') | password_hash('sha512') }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
     - name: "1. Instalar infraestrutura de base e utilitários"
       ansible.builtin.apt:
         name: [openbox, lightdm, xbindkeys, xdotool, dbus-x11, lxterminal, wget]
         state: present
         update_cache: yes
+
+    - name: "1.1 Instalar suporte a impressoras (CUPS e drivers)"
+      ansible.builtin.apt:
+        name: [cups, cups-client, cups-bsd, printer-driver-all]
+        state: present
+      when: install_printers | default(false) | bool
 
     - name: "2. Verificar se o Google Chrome já está instalado"
       ansible.builtin.command: dpkg -s google-chrome-stable
@@ -53,7 +70,7 @@
             "ShowHomeButton": false,
             "BookmarkBarEnabled": false,
             "EditBookmarksEnabled": false,
-            "AllowFileSelectionDialogs": false,
+            "AllowFileSelectionDialogs": {{ 'true' if allow_file_selection | default(false) else 'false' }},
             "TranslateEnabled": false,
             "FullscreenAllowed": true
           }
@@ -61,28 +78,28 @@
     - name: "6. Configurar permissões de Sudo"
       ansible.builtin.copy:
         dest: /etc/sudoers.d/kiosk-admin
-        content: "administrador ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl"
+        content: "{{ target_user }} ALL=(ALL) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /bin/chvt, /usr/bin/chvt, /bin/systemctl"
         mode: '0440'
 
     - name: "7. Configurar Autologin e Sessão LightDM"
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
-        content: "[Seat:*]\nautologin-user=administrador\nautologin-session=kiosk"
+        content: "[Seat:*]\nautologin-user={{ target_user }}\nautologin-session=kiosk"
 
     - name: "8. Garantir estrutura de pastas do Openbox (Correção de Erro)"
       ansible.builtin.file:
-        path: "/home/administrador/.config/openbox"
+        path: "/home/{{ target_user }}/.config/openbox"
         state: directory
-        owner: administrador
-        group: administrador
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
         mode: '0755'
         recurse: yes
 
     - name: "9. Configurar Openbox (rc.xml)"
       ansible.builtin.copy:
-        dest: "/home/administrador/.config/openbox/rc.xml"
-        owner: administrador
-        group: administrador
+        dest: "/home/{{ target_user }}/.config/openbox/rc.xml"
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <openbox_config xmlns="http://openbox.org/3.4/rc">
@@ -106,9 +123,9 @@
 
     - name: "10. Bloqueio de Teclado (xbindkeys)"
       ansible.builtin.copy:
-        dest: /home/administrador/.xbindkeysrc
-        owner: administrador
-        group: administrador
+        dest: "/home/{{ target_user }}/.xbindkeysrc"
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
         content: |
           "pkill -9 chrome && pkill -9 openbox"
             Home
@@ -131,19 +148,19 @@
 
     - name: "11. Script de Inicialização Dinâmico (kiosk.sh)"
       ansible.builtin.copy:
-        dest: /home/administrador/kiosk.sh
-        owner: administrador
-        group: administrador
+        dest: "/home/{{ target_user }}/kiosk.sh"
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
         mode: '0755'
         content: |
           #!/bin/bash
-          openbox --config-file /home/administrador/.config/openbox/rc.xml &
+          openbox --config-file /home/{{ target_user }}/.config/openbox/rc.xml &
           xbindkeys &
           xset s off -dpms
           while true; do
               # Limpeza condicional baseada na variável persistent_session do hosts.ini
               {% if not persistent_session | default(false) %}
-              rm -rf /home/administrador/.config/google-chrome
+              rm -rf /home/{{ target_user }}/.config/google-chrome
               {% endif %}
               
               google-chrome \
@@ -157,10 +174,10 @@
     - name: "12. Criar Ficheiro de Sessão Desktop"
       ansible.builtin.copy:
         dest: /usr/share/xsessions/kiosk.desktop
-        content: "[Desktop Entry]\nName=Kiosk Mode\nExec=/home/administrador/kiosk.sh\nType=Application"
+        content: "[Desktop Entry]\nName=Kiosk Mode\nExec=/home/{{ target_user }}/kiosk.sh\nType=Application"
 
     - name: "13. Garantir Permissões e Aplicar Reboot"
-      ansible.builtin.shell: chown -R administrador:administrador /home/administrador/
+      ansible.builtin.shell: chown -R {{ target_user }}:{{ target_user }} /home/{{ target_user }}/
       notify: "Reiniciar Sistema"
 
   handlers:
