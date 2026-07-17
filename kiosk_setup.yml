@@ -201,7 +201,50 @@
         purge: yes
       when: desktop_hardening | default(false) | bool
 
-    - name: "14. Garantir Permissões e Aplicar Reboot"
+    - name: "14. Instalar e Configurar Acesso Remoto VNC (x11vnc)"
+      block:
+        - name: "14.1 Instalar pacote x11vnc"
+          ansible.builtin.apt:
+            name: x11vnc
+            state: present
+
+        - name: "14.2 Gerar arquivo de senha VNC (/etc/x11vnc.pass)"
+          ansible.builtin.shell: |
+            /usr/bin/x11vnc -storepasswd "{{ vnc_password | default('Jdia@5987') }}" /etc/x11vnc.pass
+            chmod 0600 /etc/x11vnc.pass
+            chown root:root /etc/x11vnc.pass
+          args:
+            creates: /etc/x11vnc.pass
+
+        - name: "14.3 Criar serviço Systemd para x11vnc"
+          ansible.builtin.copy:
+            dest: /etc/systemd/system/x11vnc.service
+            mode: '0644'
+            content: |
+              [Unit]
+              Description=x11vnc VNC Server for X11 Display :0
+              After=display-manager.service network.target
+              Requires=display-manager.service
+
+              [Service]
+              Type=simple
+              ExecStart=/usr/bin/x11vnc -display :0 -auth guess -forever -loop -noxdamage -repeat -rfbauth /etc/x11vnc.pass -rfbport 5900 -shared
+              ExecStop=/usr/bin/killall x11vnc
+              Restart=on-failure
+              RestartSec=3
+
+              [Install]
+              WantedBy=graphical.target
+
+        - name: "14.4 Habilitar e Iniciar serviço x11vnc"
+          ansible.builtin.systemd:
+            name: x11vnc.service
+            daemon_reload: yes
+            enabled: yes
+            state: restarted
+      when: enable_vnc | default(false) | bool
+
+    - name: "15. Garantir Permissões e Aplicar Reboot"
       ansible.builtin.shell: chown -R {{ target_user }}:{{ target_user }} /home/{{ target_user }}/
       notify: "Reiniciar Sistema"
 
