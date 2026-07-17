@@ -15,13 +15,14 @@
         create_home: yes
         state: present
 
-    - name: "0.1 Aguardar liberação de locks do APT e desativar auto-updater (mintupdate/aptk)"
+    - name: "0.1 Aguardar liberação de locks do APT e auto-recuperar dpkg (mintupdate/aptk)"
       ansible.builtin.shell: |
         systemctl stop apt-daily.service apt-daily-upgrade.service mintupdate.service 2>/dev/null || true
         killall -9 aptk mintupdate mintupdate-cli unattended-upgrades 2>/dev/null || true
         while fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
           sleep 2
         done
+        dpkg --configure -a --force-confold --force-confdef 2>/dev/null || true
       changed_when: false
 
     - name: "1. Instalar infraestrutura de base e utilitários"
