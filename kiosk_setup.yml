@@ -39,6 +39,13 @@
         lock_timeout: 300
       when: install_printers | default(false) | bool
 
+    - name: "1.2 Atualizar pacotes do sistema e aplicar patches de segurança (Security Upgrade)"
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: yes
+        lock_timeout: 600
+      notify: "Reiniciar Sistema"
+
     - name: "2. Verificar se o Google Chrome já está instalado"
       ansible.builtin.command: dpkg -s google-chrome-stable
       register: chrome_check
