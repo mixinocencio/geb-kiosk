@@ -354,6 +354,25 @@
               CustomizeDesktopMenu=NONE
               CustomizeWindowlist=NONE
               CustomizeDesktopIcons=NONE
+
+        - name: "16.7 Configurar papel de parede da tela de login e bloqueio (Slick Greeter)"
+          ansible.builtin.copy:
+            dest: /etc/lightdm/slick-greeter.conf
+            mode: '0644'
+            owner: root
+            group: root
+            content: |
+              [Greeter]
+              background=/usr/share/backgrounds/ebeg_wallpaper.png
+              draw-user-background=false
+
+        - name: "16.8 Configurar papel de parede da tela de login e bloqueio (GTK Greeter fallback)"
+          ansible.builtin.lineinfile:
+            path: /etc/lightdm/lightdm-gtk-greeter.conf.d/99_linuxmint.conf
+            regexp: '^background='
+            line: 'background=/usr/share/backgrounds/ebeg_wallpaper.png'
+            create: yes
+            mode: '0644'
       when:
         - desktop_session | default('kiosk') == 'xfce'
         - custom_wallpaper is defined
