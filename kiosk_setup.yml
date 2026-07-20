@@ -290,55 +290,37 @@
             owner: "{{ target_user }}"
             group: "{{ target_user }}"
 
-        - name: "16.3 Configurar papel de parede blindado em todos os monitores e workspaces (xfce4-desktop.xml)"
-          ansible.builtin.copy:
-            dest: "/home/{{ target_user }}/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
-            mode: '0444'
-            owner: root
-            group: root
-            content: |
-              <?xml version="1.0" encoding="UTF-8"?>
-              <channel name="xfce4-desktop" version="1.0">
-                <property name="backdrop" type="empty">
-                  <property name="screen0" type="empty">
-                    <property name="monitor0" type="empty">
-                      <property name="workspace0" type="empty">
-                        <property name="color-style" type="int" value="0"/>
-                        <property name="image-style" type="int" value="5"/>
-                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
-                      </property>
-                    </property>
-                    <property name="monitorVirtual1" type="empty">
-                      <property name="workspace0" type="empty">
-                        <property name="color-style" type="int" value="0"/>
-                        <property name="image-style" type="int" value="5"/>
-                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
-                      </property>
-                    </property>
-                    <property name="monitorDP-1" type="empty">
-                      <property name="workspace0" type="empty">
-                        <property name="color-style" type="int" value="0"/>
-                        <property name="image-style" type="int" value="5"/>
-                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
-                      </property>
-                    </property>
-                    <property name="monitorHDMI-A-1" type="empty">
-                      <property name="workspace0" type="empty">
-                        <property name="color-style" type="int" value="0"/>
-                        <property name="image-style" type="int" value="5"/>
-                        <property name="last-image" type="string" value="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"/>
-                      </property>
-                    </property>
-                  </property>
-                </property>
-              </channel>
+        - name: "16.3 Forçar papel de parede corporativo no XML do XFCE (todos os monitores/workspaces)"
+          ansible.builtin.shell: |
+            TARGET_FILE="/home/{{ target_user }}/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
+            WALLPAPER="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"
+            # Desbloquear arquivo para edição
+            chmod 644 "$TARGET_FILE" 2>/dev/null || true
+            # Substituir TODAS as referências de last-image por nosso wallpaper
+            sed -i "s|value=\"[^\"]*\"|value=\"${WALLPAPER}\"|g" "$TARGET_FILE" 2>/dev/null
+            # Restaurar propriedades de estilo que não são caminhos de imagem
+            sed -i 's|name="color-style" type="int" value="[^"]*"|name="color-style" type="int" value="0"|g' "$TARGET_FILE"
+            sed -i 's|name="image-style" type="int" value="[^"]*"|name="image-style" type="int" value="5"|g' "$TARGET_FILE"
+            # Travar arquivo como somente leitura
+            chown root:root "$TARGET_FILE"
+            chmod 444 "$TARGET_FILE"
+            # Verificar
+            grep last-image "$TARGET_FILE"
           notify: "Reiniciar Sistema"
 
         - name: "16.4 Atualizar papel de parede ao vivo via xfconf se a sessão estiver ativa"
           ansible.builtin.shell: |
-            for prop in $(sudo -u {{ target_user }} DISPLAY=:0 xfconf-query -c xfce4-desktop -p /backdrop -l 2>/dev/null | grep last-image); do
-              sudo -u {{ target_user }} DISPLAY=:0 xfconf-query -c xfce4-desktop -p "$prop" -s "/usr/share/backgrounds/{{ custom_wallpaper | basename }}" 2>/dev/null || true
-            done
+            WALLPAPER="/usr/share/backgrounds/{{ custom_wallpaper | basename }}"
+            # Obter DBUS da sessão do usuário
+            PID=$(pgrep -u {{ target_user }} xfce4-session 2>/dev/null | head -1)
+            if [ -n "$PID" ]; then
+              DBUS=$(cat /proc/$PID/environ 2>/dev/null | tr '\0' '\n' | grep DBUS_SESSION_BUS_ADDRESS)
+              export $DBUS 2>/dev/null || true
+              # Listar e atualizar TODAS as propriedades last-image
+              for prop in $(sudo -u {{ target_user }} DISPLAY=:0 env "$DBUS" xfconf-query -c xfce4-desktop -p /backdrop -l 2>/dev/null | grep last-image); do
+                sudo -u {{ target_user }} DISPLAY=:0 env "$DBUS" xfconf-query -c xfce4-desktop -p "$prop" -s "$WALLPAPER" 2>/dev/null || true
+              done
+            fi
           failed_when: false
 
         - name: "16.5 Garantir diretório de bloqueio Kiosk do XFCE (/etc/xdg/xfce4/kiosk/)"
