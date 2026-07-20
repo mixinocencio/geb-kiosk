@@ -107,6 +107,15 @@
       ansible.builtin.copy:
         dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
         content: "[Seat:*]\nautologin-user={{ target_user }}\nautologin-session={{ desktop_session | default('kiosk') }}"
+      when: autologin_enabled | default(true) | bool
+
+    - name: "7.1 Desabilitar Autologin (exigir senha no login/desbloqueio)"
+      ansible.builtin.copy:
+        dest: /etc/lightdm/lightdm.conf.d/99-kiosk-autologin.conf
+        content: "[Seat:*]\nautologin-user=\nautologin-session={{ desktop_session | default('xfce') }}\ngreeter-hide-users=false"
+        mode: '0644'
+      when: not (autologin_enabled | default(true) | bool)
+      notify: "Reiniciar Sistema"
 
     - name: "8. Garantir estrutura de pastas do Openbox (Correção de Erro)"
       ansible.builtin.file:
